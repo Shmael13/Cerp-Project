@@ -1,0 +1,1171 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+<title>CERP Data Visualizer</title>
+<script src="https://cdn.plot.ly/plotly-2.35.2.min.js" charset="utf-8"></script>
+<style>
+/* ── Reset & base ─────────────────────────────────────────────────────────── */
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --sidebar:#0f172a;--sidebar-2:#1e293b;--sidebar-text:#e2e8f0;
+  --sidebar-muted:#94a3b8;--sidebar-border:#334155;
+  --accent:#6366f1;--accent-hover:#4f46e5;--accent-light:#eef2ff;
+  --bg:#f1f5f9;--surface:#fff;--text:#1e293b;--muted:#64748b;
+  --border:#e2e8f0;--danger:#ef4444;--success:#22c55e;--warn:#f59e0b;
+  --r:8px;--r-sm:5px;
+  --sh:0 1px 3px rgba(0,0,0,.1),0 1px 2px rgba(0,0,0,.06);
+  --sh-lg:0 10px 15px -3px rgba(0,0,0,.1),0 4px 6px -2px rgba(0,0,0,.05);
+}
+body{font-family:system-ui,-apple-system,sans-serif;font-size:14px;
+  color:var(--text);background:var(--bg);height:100vh;overflow:hidden}
+
+/* ── Upload screen ─────────────────────────────────────────────────────────── */
+#upload-screen{
+  display:flex;align-items:center;justify-content:center;
+  height:100vh;background:linear-gradient(135deg,#0f172a 0%,#1e293b 100%)}
+.upload-card{
+  background:var(--surface);border-radius:16px;padding:56px 64px;
+  text-align:center;max-width:480px;width:90%;box-shadow:var(--sh-lg)}
+.upload-icon{font-size:56px;margin-bottom:16px}
+.upload-card h1{font-size:26px;font-weight:700;color:var(--text);margin-bottom:8px}
+.upload-card p{color:var(--muted);margin-bottom:32px;line-height:1.6}
+.dropzone{
+  border:2px dashed var(--border);border-radius:var(--r);padding:40px 24px;
+  cursor:pointer;transition:all .2s;background:var(--bg);position:relative}
+.dropzone:hover,.dropzone.drag-over{
+  border-color:var(--accent);background:var(--accent-light)}
+.dropzone span{color:var(--muted);font-size:14px}
+.dropzone span b{color:var(--accent);cursor:pointer}
+.dropzone input[type=file]{
+  position:absolute;inset:0;opacity:0;cursor:pointer;width:100%;height:100%}
+.upload-progress{
+  display:none;margin-top:16px;height:4px;background:var(--border);
+  border-radius:4px;overflow:hidden}
+.upload-progress-bar{height:100%;background:var(--accent);
+  width:0;transition:width .3s;animation:progress 1s infinite}
+@keyframes progress{0%{width:0;margin-left:0}50%{width:60%}100%{width:0;margin-left:100%}}
+
+/* ── App shell ─────────────────────────────────────────────────────────────── */
+#app{display:none;flex-direction:column;height:100vh}
+header{
+  background:var(--sidebar);color:var(--sidebar-text);
+  padding:0 20px;height:52px;display:flex;align-items:center;
+  justify-content:space-between;flex-shrink:0;
+  border-bottom:1px solid var(--sidebar-border);z-index:10}
+.header-left{display:flex;align-items:center;gap:12px}
+.header-logo{font-size:22px}
+.header-title{font-size:16px;font-weight:600;letter-spacing:-.3px}
+#file-badge{
+  background:var(--sidebar-2);color:var(--sidebar-muted);
+  font-size:11px;padding:3px 10px;border-radius:20px;max-width:220px;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.btn-ghost{
+  background:transparent;border:1px solid var(--sidebar-border);
+  color:var(--sidebar-muted);padding:5px 12px;border-radius:var(--r-sm);
+  cursor:pointer;font-size:12px;transition:all .15s}
+.btn-ghost:hover{border-color:var(--sidebar-text);color:var(--sidebar-text)}
+
+.layout{display:flex;flex:1;overflow:hidden}
+
+/* ── Sidebar ───────────────────────────────────────────────────────────────── */
+#sidebar{
+  width:280px;flex-shrink:0;background:var(--sidebar);
+  overflow-y:auto;display:flex;flex-direction:column;
+  border-right:1px solid var(--sidebar-border)}
+#sidebar::-webkit-scrollbar{width:4px}
+#sidebar::-webkit-scrollbar-track{background:transparent}
+#sidebar::-webkit-scrollbar-thumb{background:var(--sidebar-border);border-radius:4px}
+.sb-section{padding:14px 16px;border-bottom:1px solid var(--sidebar-border)}
+.sb-label{
+  font-size:10px;font-weight:600;letter-spacing:.08em;
+  color:var(--sidebar-muted);text-transform:uppercase;margin-bottom:8px}
+.sb-select{
+  width:100%;background:var(--sidebar-2);color:var(--sidebar-text);
+  border:1px solid var(--sidebar-border);border-radius:var(--r-sm);
+  padding:7px 10px;font-size:13px;cursor:pointer;outline:none;
+  appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2394a3b8' stroke-width='2'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
+  background-repeat:no-repeat;background-position:right 10px center;padding-right:30px}
+.sb-select:focus{border-color:var(--accent)}
+.param-group{margin-bottom:2px}
+.param-group summary{
+  list-style:none;cursor:pointer;font-size:11px;font-weight:600;
+  letter-spacing:.06em;color:var(--sidebar-muted);text-transform:uppercase;
+  padding:6px 0;display:flex;align-items:center;gap:6px;user-select:none}
+.param-group summary::before{content:"▶";font-size:8px;transition:transform .15s}
+.param-group[open] summary::before{transform:rotate(90deg)}
+.param-group summary::-webkit-details-marker{display:none}
+.field{margin-bottom:10px}
+.field label{
+  display:block;font-size:11px;color:var(--sidebar-muted);
+  margin-bottom:4px;line-height:1.3}
+.field-row{display:flex;align-items:center;gap:8px}
+.sb-input{
+  width:100%;background:var(--sidebar-2);color:var(--sidebar-text);
+  border:1px solid var(--sidebar-border);border-radius:var(--r-sm);
+  padding:6px 9px;font-size:13px;outline:none}
+.sb-input:focus{border-color:var(--accent)}
+.sb-range{width:100%;accent-color:var(--accent);cursor:pointer}
+.range-val{
+  min-width:40px;text-align:right;font-size:12px;
+  color:var(--sidebar-text);font-variant-numeric:tabular-nums}
+.toggle-wrap{display:flex;align-items:center;gap:8px;cursor:pointer}
+.toggle-wrap input[type=checkbox]{
+  width:32px;height:18px;appearance:none;background:var(--sidebar-border);
+  border-radius:10px;cursor:pointer;position:relative;transition:background .2s}
+.toggle-wrap input[type=checkbox]:checked{background:var(--accent)}
+.toggle-wrap input[type=checkbox]::after{
+  content:"";position:absolute;width:14px;height:14px;
+  background:#fff;border-radius:50%;top:2px;left:2px;transition:left .2s}
+.toggle-wrap input[type=checkbox]:checked::after{left:16px}
+.toggle-label{font-size:13px;color:var(--sidebar-text);cursor:pointer}
+.multiselect-grid{display:grid;grid-template-columns:1fr 1fr;gap:4px;margin-top:2px}
+.multiselect-item{display:flex;align-items:center;gap:5px;cursor:pointer}
+.multiselect-item input{accent-color:var(--accent);cursor:pointer}
+.multiselect-item span{font-size:12px;color:var(--sidebar-text)}
+.color-row{display:flex;align-items:center;gap:8px}
+.sb-color{width:36px;height:28px;border:1px solid var(--sidebar-border);
+  border-radius:4px;cursor:pointer;background:none;padding:2px}
+.btn-build{
+  width:100%;background:var(--accent);color:#fff;border:none;
+  padding:10px;border-radius:var(--r);font-size:14px;font-weight:600;
+  cursor:pointer;transition:background .15s;letter-spacing:.3px}
+.btn-build:hover{background:var(--accent-hover)}
+.btn-build:disabled{opacity:.5;cursor:not-allowed}
+.transform-row{
+  display:grid;grid-template-columns:1fr auto 1fr auto;gap:4px;
+  align-items:center;margin-bottom:6px}
+.transform-row-3{
+  display:grid;grid-template-columns:1fr 1fr auto;gap:4px;
+  align-items:center;margin-bottom:6px}
+.btn-icon{
+  background:transparent;border:none;color:var(--sidebar-muted);
+  cursor:pointer;font-size:14px;padding:2px 4px;line-height:1}
+.btn-icon:hover{color:var(--danger)}
+.btn-add{
+  background:transparent;border:1px dashed var(--sidebar-border);
+  color:var(--sidebar-muted);padding:4px 8px;border-radius:var(--r-sm);
+  font-size:11px;cursor:pointer;margin-top:4px;width:100%;transition:all .15s}
+.btn-add:hover{border-color:var(--accent);color:var(--accent)}
+
+/* ── Main ──────────────────────────────────────────────────────────────────── */
+#main{flex:1;overflow:hidden;display:flex;flex-direction:column}
+.tab-bar{
+  display:flex;gap:2px;padding:12px 20px 0;
+  border-bottom:1px solid var(--border);background:var(--surface);flex-shrink:0}
+.tab-btn{
+  background:none;border:none;padding:8px 16px;cursor:pointer;
+  font-size:13px;color:var(--muted);border-bottom:2px solid transparent;
+  margin-bottom:-1px;transition:all .15s;font-weight:500}
+.tab-btn:hover{color:var(--accent)}
+.tab-btn.active{color:var(--accent);border-bottom-color:var(--accent)}
+.tab-content{display:none;flex:1;overflow-y:auto;padding:24px;min-height:0}
+.tab-content.active{display:flex;flex-direction:column}
+#tab-chart.active{overflow-y:hidden;padding-bottom:0}
+.tab-content::-webkit-scrollbar{width:6px}
+.tab-content::-webkit-scrollbar-thumb{background:var(--border);border-radius:4px}
+
+/* ── Empty / loading states ─────────────────────────────────────────────────── */
+.empty-state{
+  flex:1;display:flex;flex-direction:column;align-items:center;
+  justify-content:center;color:var(--muted);gap:12px;padding:40px}
+.empty-icon{font-size:40px;opacity:.5}
+.empty-state p{text-align:center;line-height:1.6;max-width:300px}
+.spinner{
+  width:32px;height:32px;border:3px solid var(--border);
+  border-top-color:var(--accent);border-radius:50%;animation:spin .7s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+/* ── Warnings ──────────────────────────────────────────────────────────────── */
+.warnings{margin-bottom:16px}
+.warning-item{
+  background:#fffbeb;border:1px solid #fcd34d;border-radius:var(--r-sm);
+  padding:8px 12px;font-size:12px;color:#92400e;margin-bottom:6px}
+
+/* ── Chart area ────────────────────────────────────────────────────────────── */
+#chart-result{display:flex;flex-direction:column;flex:1;min-height:0}
+#chart-container{width:100%;flex:1;min-height:400px}
+.chart-actions{display:flex;gap:8px;margin-top:12px}
+.btn-outline{
+  background:var(--surface);border:1px solid var(--border);
+  color:var(--text);padding:6px 14px;border-radius:var(--r-sm);
+  font-size:12px;cursor:pointer;transition:all .15s}
+.btn-outline:hover{border-color:var(--accent);color:var(--accent)}
+
+/* ── Suggestion cards ─────────────────────────────────────────────────────── */
+.qs-header{display:flex;align-items:center;gap:12px;margin-bottom:20px;flex-wrap:wrap}
+.qs-header h2{font-size:18px;font-weight:700;flex:1}
+.qs-engine-wrap{display:flex;align-items:center;gap:8px}
+.qs-engine-wrap label{font-size:12px;color:var(--muted);white-space:nowrap}
+.main-select{
+  background:var(--surface);border:1px solid var(--border);border-radius:var(--r-sm);
+  padding:6px 10px;font-size:13px;outline:none;cursor:pointer}
+.main-select:focus{border-color:var(--accent)}
+.btn-primary{
+  background:var(--accent);color:#fff;border:none;
+  padding:7px 16px;border-radius:var(--r-sm);font-size:13px;
+  cursor:pointer;font-weight:600;transition:background .15s;white-space:nowrap}
+.btn-primary:hover{background:var(--accent-hover)}
+.cards-grid{
+  display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:16px}
+.sug-card{
+  background:var(--surface);border:1px solid var(--border);border-radius:var(--r);
+  padding:18px;box-shadow:var(--sh);transition:box-shadow .15s}
+.sug-card:hover{box-shadow:var(--sh-lg)}
+.sug-card-header{display:flex;align-items:flex-start;gap:10px;margin-bottom:10px}
+.sug-card-info{flex:1;min-width:0}
+.sug-title{font-size:14px;font-weight:600;color:var(--text);
+  margin-bottom:4px;line-height:1.4}
+.sug-type{
+  display:inline-block;background:var(--accent-light);color:var(--accent);
+  font-size:10px;font-weight:600;padding:2px 7px;border-radius:10px;
+  letter-spacing:.04em}
+.sug-rationale{font-size:12px;color:var(--muted);margin:8px 0;line-height:1.5}
+.sug-score-bar{height:4px;background:var(--border);border-radius:2px;margin:8px 0}
+.sug-score-fill{height:100%;border-radius:2px;
+  background:linear-gradient(90deg,var(--accent),#8b5cf6)}
+.sug-cols{display:flex;flex-wrap:wrap;gap:4px;margin:8px 0}
+.sug-col-tag{
+  background:var(--bg);border:1px solid var(--border);
+  font-size:10px;padding:2px 7px;border-radius:10px;color:var(--muted)}
+.sug-col-tag b{color:var(--text)}
+.sug-transforms{
+  font-size:11px;color:#059669;margin-top:6px;line-height:1.5}
+.btn-apply{
+  background:var(--accent);color:#fff;border:none;
+  padding:7px 14px;border-radius:var(--r-sm);font-size:12px;
+  cursor:pointer;font-weight:600;transition:background .15s;white-space:nowrap;flex-shrink:0}
+.btn-apply:hover{background:var(--accent-hover)}
+.btn-apply:disabled{opacity:.5;cursor:not-allowed}
+.sug-unavail{opacity:.4;pointer-events:none}
+
+/* ── Data table ────────────────────────────────────────────────────────────── */
+.data-meta{
+  display:flex;gap:20px;margin-bottom:16px;flex-wrap:wrap}
+.data-stat{
+  background:var(--surface);border:1px solid var(--border);
+  border-radius:var(--r);padding:12px 18px;text-align:center}
+.data-stat .ds-val{font-size:22px;font-weight:700;color:var(--accent)}
+.data-stat .ds-lbl{font-size:11px;color:var(--muted);margin-top:2px}
+.table-wrap{overflow:auto;background:var(--surface);
+  border:1px solid var(--border);border-radius:var(--r);max-height:500px}
+table{border-collapse:collapse;width:100%;font-size:12px}
+th{
+  background:#f8fafc;padding:8px 12px;text-align:left;
+  font-weight:600;color:var(--muted);font-size:11px;letter-spacing:.04em;
+  border-bottom:1px solid var(--border);position:sticky;top:0;z-index:1}
+td{padding:7px 12px;border-bottom:1px solid var(--border);color:var(--text)}
+tr:last-child td{border-bottom:none}
+tr:hover td{background:#f8fafc}
+
+/* ── Toast ─────────────────────────────────────────────────────────────────── */
+#toast{
+  position:fixed;bottom:24px;right:24px;background:var(--text);color:#fff;
+  padding:10px 18px;border-radius:var(--r);font-size:13px;font-weight:500;
+  box-shadow:var(--sh-lg);opacity:0;transition:opacity .25s;pointer-events:none;z-index:100}
+#toast.show{opacity:1}
+
+/* ── Misc ──────────────────────────────────────────────────────────────────── */
+.hidden{display:none!important}
+.text-muted{color:var(--muted);font-size:12px}
+.mt-8{margin-top:8px}
+.gap-section{height:1px;background:var(--sidebar-border);margin:8px 0}
+</style>
+</head>
+<body>
+
+<!-- ── Upload Screen ────────────────────────────────────────────────────────── -->
+<div id="upload-screen">
+  <div class="upload-card">
+    <div class="upload-icon">📊</div>
+    <h1>CERP Data Visualizer</h1>
+    <p>Upload an Excel or CSV file to instantly generate beautiful, interactive charts with AI-powered suggestions.</p>
+    <div class="dropzone" id="dropzone">
+      <span>Drop your file here or <b>browse</b></span>
+      <input type="file" id="file-input" accept=".xlsx,.xls,.csv"/>
+    </div>
+    <div class="upload-progress" id="upload-progress">
+      <div class="upload-progress-bar"></div>
+    </div>
+    <p id="upload-error" style="color:var(--danger);font-size:12px;margin-top:10px;display:none"></p>
+  </div>
+</div>
+
+<!-- ── Main App ──────────────────────────────────────────────────────────────── -->
+<div id="app">
+  <header>
+    <div class="header-left">
+      <span class="header-logo">📊</span>
+      <span class="header-title">CERP Visualizer</span>
+      <span id="file-badge"></span>
+    </div>
+    <div>
+      <button class="btn-ghost" onclick="changeFile()">⬆ Change File</button>
+    </div>
+  </header>
+
+  <div class="layout">
+    <!-- Sidebar -->
+    <aside id="sidebar">
+      <!-- Sheet -->
+      <div class="sb-section">
+        <div class="sb-label">Sheet</div>
+        <select class="sb-select" id="sb-sheet" onchange="onSheetChange()"></select>
+      </div>
+
+      <!-- Chart Type -->
+      <div class="sb-section">
+        <div class="sb-label">Chart Type</div>
+        <select class="sb-select" id="sb-chart" onchange="onChartChange()"></select>
+      </div>
+
+      <!-- Columns -->
+      <div class="sb-section" id="sb-cols-section">
+        <div class="sb-label">Columns</div>
+        <div id="sb-cols-form"></div>
+      </div>
+
+      <!-- Parameters -->
+      <div class="sb-section" id="sb-params-section">
+        <div id="sb-params-form"></div>
+        <!-- Title/Subtitle always at bottom -->
+        <details class="param-group">
+          <summary>Labels</summary>
+          <div style="padding-top:8px">
+            <div class="field">
+              <label>Chart Title</label>
+              <input class="sb-input" id="param-_chart_title" type="text" placeholder="Auto"/>
+            </div>
+            <div class="field">
+              <label>Subtitle</label>
+              <input class="sb-input" id="param-_chart_subtitle" type="text" placeholder="Optional"/>
+            </div>
+          </div>
+        </details>
+      </div>
+
+      <!-- Transforms -->
+      <div class="sb-section">
+        <details class="param-group" id="transforms-group">
+          <summary>🔧 Transforms</summary>
+          <div style="padding-top:10px">
+            <!-- Filters -->
+            <div class="sb-label" style="margin-bottom:6px">Row Filters</div>
+            <div id="filters-list"></div>
+            <button class="btn-add" onclick="addFilter()">+ Add Filter</button>
+            <div style="height:10px"></div>
+            <!-- Date Parts -->
+            <div class="sb-label" style="margin-bottom:6px">Date Part Extraction</div>
+            <div id="dateparts-list"></div>
+            <button class="btn-add" onclick="addDatePart()">+ Add Date Part</button>
+          </div>
+        </details>
+      </div>
+
+      <!-- Theme -->
+      <div class="sb-section">
+        <div class="sb-label">Theme</div>
+        <select class="sb-select" id="sb-theme" onchange="S.theme=this.value"></select>
+      </div>
+
+      <!-- Build -->
+      <div class="sb-section" style="border-bottom:none">
+        <button class="btn-build" id="build-btn" onclick="buildChart()">▶ Build Chart</button>
+      </div>
+    </aside>
+
+    <!-- Main content -->
+    <main id="main">
+      <div class="tab-bar">
+        <button class="tab-btn active" data-tab="quickstart">💡 Quick Start</button>
+        <button class="tab-btn" data-tab="chart">📊 Chart</button>
+        <button class="tab-btn" data-tab="data">🗂 Data</button>
+      </div>
+
+      <!-- Quick Start Tab -->
+      <div id="tab-quickstart" class="tab-content active">
+        <div class="qs-header">
+          <h2>Quick Start</h2>
+          <div class="qs-engine-wrap">
+            <label>Engine</label>
+            <select class="main-select" id="qs-engine" onchange="S.engine=this.value"></select>
+          </div>
+          <button class="btn-primary" onclick="loadSuggestions()">🔍 Analyse</button>
+        </div>
+        <div id="qs-content">
+          <div class="empty-state">
+            <div class="empty-icon">💡</div>
+            <p>Click <b>Analyse</b> to let the engine inspect your data and recommend the best charts.</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Chart Tab -->
+      <div id="tab-chart" class="tab-content">
+        <div class="empty-state" id="chart-empty">
+          <div class="empty-icon">📊</div>
+          <p>Configure columns and parameters in the sidebar, then click <b>▶ Build Chart</b>.</p>
+        </div>
+        <div id="chart-result" style="display:none">
+          <div id="chart-warnings" class="warnings"></div>
+          <div id="chart-container"></div>
+          <div class="chart-actions">
+            <button class="btn-outline" onclick="downloadChart('png')">⬇ PNG</button>
+            <button class="btn-outline" onclick="downloadChart('svg')">⬇ SVG</button>
+            <button class="btn-outline" onclick="downloadHTML()">⬇ HTML</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Data Tab -->
+      <div id="tab-data" class="tab-content">
+        <div id="data-content">
+          <div class="empty-state">
+            <div class="empty-icon">🗂</div>
+            <p>Upload a file to preview your data here.</p>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script>
+// ── State ──────────────────────────────────────────────────────────────────────
+const S = {
+  sid: null, sheets: [], sheet: null, cols: [], rows: 0,
+  charts: [], chart: null, specs: null,
+  colVals: {}, paramVals: {},
+  transforms: { filters: [], date_parts: [], derived_cols: [] },
+  tab: 'quickstart', theme: 'Light',
+  themes: [], engines: [], engine: 'Smart (Statistical + Rule-Based)',
+  suggestions: [],
+  operators: [], dateParts: [],
+  lastFig: null,
+};
+
+// ── API helpers ────────────────────────────────────────────────────────────────
+async function api(method, path, body) {
+  const opts = { method, headers: {} };
+  if (body) {
+    opts.headers['Content-Type'] = 'application/json';
+    opts.body = JSON.stringify(body);
+  }
+  const r = await fetch(path, opts);
+  if (!r.ok) {
+    const err = await r.json().catch(() => ({ detail: r.statusText }));
+    throw new Error(err.detail || 'Request failed');
+  }
+  return r.json();
+}
+const GET  = (p)    => api('GET',  p);
+const POST = (p, b) => api('POST', p, b);
+
+// ── Upload ─────────────────────────────────────────────────────────────────────
+async function uploadFile(file) {
+  const fd = new FormData();
+  fd.append('file', file);
+  document.getElementById('upload-progress').style.display = 'block';
+  hideUploadError();
+  try {
+    const r = await fetch('/api/upload', { method: 'POST', body: fd });
+    if (!r.ok) {
+      const e = await r.json().catch(() => ({ detail: 'Upload failed' }));
+      throw new Error(e.detail);
+    }
+    const data = await r.json();
+    S.sid       = data.session_id;
+    S.sheets    = data.sheet_names;
+    S.sheet     = data.active_sheet;
+    S.cols      = data.cols;
+    S.rows      = data.rows;
+    document.getElementById('file-badge').textContent = file.name;
+    await initApp();
+    showApp();
+  } catch (e) {
+    showUploadError(e.message);
+  } finally {
+    document.getElementById('upload-progress').style.display = 'none';
+  }
+}
+
+function showUploadError(msg) {
+  const el = document.getElementById('upload-error');
+  el.textContent = '⚠ ' + msg;
+  el.style.display = 'block';
+}
+function hideUploadError() {
+  document.getElementById('upload-error').style.display = 'none';
+}
+
+// ── Init ───────────────────────────────────────────────────────────────────────
+async function initApp() {
+  const [charts, engines, themes, ops] = await Promise.all([
+    GET('/api/charts'),
+    GET('/api/engines'),
+    GET('/api/themes'),
+    GET('/api/operators'),
+  ]);
+  S.charts    = charts.charts;
+  S.engines   = engines.engines;
+  S.themes    = themes.themes;
+  S.operators = ops.operators;
+  S.dateParts = ops.date_parts;
+
+  // Sheet picker
+  const sbSheet = document.getElementById('sb-sheet');
+  sbSheet.innerHTML = S.sheets.map(n => `<option value="${esc(n)}">${esc(n)}</option>`).join('');
+  sbSheet.value = S.sheet;
+
+  // Chart picker
+  const sbChart = document.getElementById('sb-chart');
+  sbChart.innerHTML = S.charts.map(c =>
+    `<option value="${esc(c.name)}" title="${esc(c.description)}">${esc(c.name)}</option>`
+  ).join('');
+  S.chart = S.charts[0]?.name;
+  sbChart.value = S.chart;
+
+  // Engine picker
+  const qsEng = document.getElementById('qs-engine');
+  qsEng.innerHTML = S.engines.map(e =>
+    `<option value="${esc(e)}"${e === S.engine ? ' selected' : ''}>${esc(e)}</option>`
+  ).join('');
+
+  // Theme picker
+  const sbTheme = document.getElementById('sb-theme');
+  sbTheme.innerHTML = S.themes.map(t => `<option value="${esc(t)}">${esc(t)}</option>`).join('');
+  sbTheme.value = S.theme;
+
+  await loadSpecs(S.chart);
+  renderDataTab();
+}
+
+// ── Sheet change ───────────────────────────────────────────────────────────────
+async function onSheetChange() {
+  S.sheet = document.getElementById('sb-sheet').value;
+  const data = await GET(`/api/sheet/${S.sid}/${encodeURIComponent(S.sheet)}`);
+  S.cols = data.cols;
+  S.rows = data.rows;
+  S.colVals = {};
+  S.paramVals = {};
+  S.transforms = { filters: [], date_parts: [], derived_cols: [] };
+  resetChart();
+  await loadSpecs(S.chart);
+  renderDataTab();
+}
+
+// ── Chart change ───────────────────────────────────────────────────────────────
+async function onChartChange() {
+  S.chart = document.getElementById('sb-chart').value;
+  S.colVals = {};
+  S.paramVals = {};
+  resetChart();
+  await loadSpecs(S.chart);
+}
+
+async function loadSpecs(chartName) {
+  if (!chartName) return;
+  const data = await GET(`/api/specs/${encodeURIComponent(chartName)}`);
+  S.specs = data;
+  renderColForm();
+  renderParamForm();
+  renderTransformSection();
+}
+
+// ── Column form ────────────────────────────────────────────────────────────────
+function renderColForm() {
+  if (!S.specs) return;
+  const form = document.getElementById('sb-cols-form');
+  form.innerHTML = S.specs.columns.map(spec => {
+    const compatible = S.cols.filter(c => colMatches(c.type, spec.dtype));
+    const all = S.cols;
+    const opts = (spec.required ? [] : ['<option value="">(none)</option>'])
+      .concat(all.map(c => {
+        const match = colMatches(c.type, spec.dtype);
+        const cur = S.colVals[spec.role] === c.name;
+        return `<option value="${esc(c.name)}"${cur?' selected':''}${!match?' style="opacity:.5"':''}>${esc(c.name)} ${!match?'·':''}</option>`;
+      }));
+    const cur = S.colVals[spec.role];
+    if (!cur && compatible.length > 0) S.colVals[spec.role] = compatible[0].name;
+    return `<div class="field">
+      <label>${esc(spec.label)}${spec.required?' <span style="color:var(--danger)">*</span>':''}</label>
+      <select class="sb-select" onchange="S.colVals['${esc(spec.role)}']=this.value">
+        ${opts.join('')}
+      </select>
+    </div>`;
+  }).join('');
+
+  // Set defaults from compatible cols
+  S.specs.columns.forEach(spec => {
+    if (!S.colVals[spec.role]) {
+      const compatible = S.cols.filter(c => colMatches(c.type, spec.dtype));
+      if (compatible.length > 0) S.colVals[spec.role] = compatible[0].name;
+    }
+  });
+  // Re-render to reflect set defaults
+  S.specs.columns.forEach((spec, i) => {
+    const sel = form.querySelectorAll('select')[i];
+    if (sel && S.colVals[spec.role]) sel.value = S.colVals[spec.role];
+  });
+}
+
+function colMatches(colType, specDtype) {
+  if (specDtype === 'any') return true;
+  return colType === specDtype;
+}
+
+// ── Param form ─────────────────────────────────────────────────────────────────
+function renderParamForm() {
+  if (!S.specs) return;
+
+  // Group by category
+  const groups = {};
+  S.specs.assumptions.forEach(a => {
+    (groups[a.category] = groups[a.category] || []).push(a);
+  });
+
+  const form = document.getElementById('sb-params-form');
+  form.innerHTML = Object.entries(groups).map(([cat, items], gi) => {
+    const fields = items.map(a => renderParamWidget(a)).join('');
+    return `<details class="param-group"${gi === 0 ? ' open' : ''}>
+      <summary>${esc(cat)}</summary>
+      <div style="padding-top:8px">${fields}</div>
+    </details>`;
+  }).join('');
+
+  // Bind change events
+  S.specs.assumptions.forEach(a => {
+    const el = document.getElementById(`param-${a.key}`);
+    if (!el) return;
+    if (a.widget === 'slider') {
+      const disp = document.getElementById(`param-${a.key}-val`);
+      el.addEventListener('input', () => {
+        S.paramVals[a.key] = parseFloat(el.value);
+        if (disp) disp.textContent = el.value;
+      });
+    } else if (a.widget === 'toggle') {
+      el.addEventListener('change', () => { S.paramVals[a.key] = el.checked; });
+    } else if (a.widget === 'multiselect') {
+      const boxes = document.querySelectorAll(`input[name="ms-${a.key}"]`);
+      boxes.forEach(b => b.addEventListener('change', () => {
+        S.paramVals[a.key] = Array.from(boxes).filter(x => x.checked).map(x => x.value);
+      }));
+    } else {
+      el.addEventListener('change', () => { S.paramVals[a.key] = el.value; });
+      el.addEventListener('input', () => { S.paramVals[a.key] = el.value; });
+    }
+  });
+}
+
+function renderParamWidget(a) {
+  const cur = S.paramVals[a.key] !== undefined ? S.paramVals[a.key] : a.default;
+  if (a.widget === 'slider') {
+    const mn = a.options.min ?? 0, mx = a.options.max ?? 100, st = a.options.step ?? 1;
+    return `<div class="field"><label>${esc(a.label)}</label>
+      <div class="field-row">
+        <input class="sb-range" type="range" id="param-${a.key}"
+          min="${mn}" max="${mx}" step="${st}" value="${cur}"/>
+        <span class="range-val" id="param-${a.key}-val">${cur}</span>
+      </div></div>`;
+  }
+  if (a.widget === 'selectbox') {
+    const choices = a.options.choices || [];
+    const opts = choices.map(c =>
+      `<option value="${esc(c)}"${c==cur?' selected':''}>${esc(c)}</option>`).join('');
+    return `<div class="field"><label>${esc(a.label)}</label>
+      <select class="sb-select" id="param-${a.key}">${opts}</select></div>`;
+  }
+  if (a.widget === 'number_input') {
+    const mn = a.options.min ?? '', mx = a.options.max ?? '', st = a.options.step ?? 1;
+    return `<div class="field"><label>${esc(a.label)}</label>
+      <input class="sb-input" type="number" id="param-${a.key}"
+        value="${cur}" min="${mn}" max="${mx}" step="${st}"/></div>`;
+  }
+  if (a.widget === 'toggle') {
+    return `<div class="field"><label class="toggle-wrap">
+      <input type="checkbox" id="param-${a.key}"${cur?' checked':''}/>
+      <span class="toggle-label">${esc(a.label)}</span>
+    </label></div>`;
+  }
+  if (a.widget === 'multiselect') {
+    const choices = a.options.choices || [];
+    const selected = Array.isArray(cur) ? cur : [];
+    const boxes = choices.map(c =>
+      `<label class="multiselect-item">
+        <input type="checkbox" name="ms-${a.key}" value="${esc(c)}"${selected.includes(c)?' checked':''}/>
+        <span>${esc(c)}</span>
+       </label>`).join('');
+    return `<div class="field"><label>${esc(a.label)}</label>
+      <div class="multiselect-grid">${boxes}</div></div>`;
+  }
+  if (a.widget === 'color_picker') {
+    return `<div class="field"><label>${esc(a.label)}</label>
+      <div class="color-row"><input class="sb-color" type="color" id="param-${a.key}" value="${cur}"/>
+      <span class="text-muted">${cur}</span></div></div>`;
+  }
+  // text_input fallback
+  return `<div class="field"><label>${esc(a.label)}</label>
+    <input class="sb-input" type="text" id="param-${a.key}" value="${esc(cur??'')}"/></div>`;
+}
+
+// ── Transforms ─────────────────────────────────────────────────────────────────
+function renderTransformSection() {
+  renderFiltersList();
+  renderDatePartsList();
+}
+
+function renderFiltersList() {
+  const el = document.getElementById('filters-list');
+  el.innerHTML = S.transforms.filters.map((f, i) => {
+    const colOpts = S.cols.map(c =>
+      `<option value="${esc(c.name)}"${c.name===f.column?' selected':''}>${esc(c.name)}</option>`
+    ).join('');
+    const opOpts = S.operators.map(op =>
+      `<option value="${esc(op)}"${op===f.operator?' selected':''}>${esc(op)}</option>`
+    ).join('');
+    const needVal = f.operator !== 'is blank';
+    return `<div class="transform-row">
+      <select class="sb-select" style="font-size:11px"
+        onchange="S.transforms.filters[${i}].column=this.value">${colOpts}</select>
+      <select class="sb-select" style="font-size:11px;min-width:52px"
+        onchange="updateFilterOp(${i},this.value)">${opOpts}</select>
+      <input class="sb-input" style="font-size:11px" type="text"
+        value="${esc(f.value)}" placeholder="value"
+        onchange="S.transforms.filters[${i}].value=this.value"
+        ${needVal?'':'disabled style="opacity:.3"'}/>
+      <button class="btn-icon" onclick="removeFilter(${i})">✕</button>
+    </div>`;
+  }).join('');
+}
+
+function updateFilterOp(i, val) {
+  S.transforms.filters[i].operator = val;
+  if (val === 'is blank') S.transforms.filters[i].value = '';
+  renderFiltersList();
+}
+function addFilter() {
+  if (S.transforms.filters.length >= 4) { toast('Maximum 4 filters'); return; }
+  S.transforms.filters.push({ column: S.cols[0]?.name || '', operator: '=', value: '' });
+  renderFiltersList();
+}
+function removeFilter(i) { S.transforms.filters.splice(i, 1); renderFiltersList(); }
+
+function renderDatePartsList() {
+  const el = document.getElementById('dateparts-list');
+  const dtCols = S.cols.filter(c => c.type === 'datetime');
+  el.innerHTML = S.transforms.date_parts.map((dp, i) => {
+    const colOpts = dtCols.map(c =>
+      `<option value="${esc(c.name)}"${c.name===dp.source_column?' selected':''}>${esc(c.name)}</option>`
+    ).join('');
+    const partOpts = S.dateParts.map(p =>
+      `<option value="${esc(p)}"${p===dp.part?' selected':''}>${esc(p)}</option>`
+    ).join('');
+    return `<div class="transform-row-3">
+      <select class="sb-select" style="font-size:11px"
+        onchange="S.transforms.date_parts[${i}].source_column=this.value">${colOpts}</select>
+      <select class="sb-select" style="font-size:11px"
+        onchange="S.transforms.date_parts[${i}].part=this.value">${partOpts}</select>
+      <button class="btn-icon" onclick="removeDatePart(${i})">✕</button>
+    </div>`;
+  }).join('');
+  if (dtCols.length === 0 && S.transforms.date_parts.length === 0) {
+    el.innerHTML = '<p class="text-muted">No datetime columns detected.</p>';
+  }
+}
+
+function addDatePart() {
+  if (S.transforms.date_parts.length >= 4) { toast('Maximum 4 date parts'); return; }
+  const dtCols = S.cols.filter(c => c.type === 'datetime');
+  if (!dtCols.length) { toast('No datetime columns in this sheet'); return; }
+  S.transforms.date_parts.push({ source_column: dtCols[0].name, part: S.dateParts[0] || 'Year' });
+  renderDatePartsList();
+}
+function removeDatePart(i) { S.transforms.date_parts.splice(i, 1); renderDatePartsList(); }
+
+// ── Build chart ────────────────────────────────────────────────────────────────
+async function buildChart() {
+  if (!S.sid || !S.chart) { toast('Select a chart type first'); return; }
+
+  const btn = document.getElementById('build-btn');
+  btn.disabled = true;
+  btn.textContent = '⏳ Building…';
+
+  // Collect all param values from DOM
+  const params = { ...S.paramVals };
+  if (S.specs) {
+    S.specs.assumptions.forEach(a => {
+      const el = document.getElementById(`param-${a.key}`);
+      if (!el) return;
+      if (a.widget === 'toggle') params[a.key] = el.checked;
+      else if (a.widget === 'multiselect') {
+        const boxes = document.querySelectorAll(`input[name="ms-${a.key}"]`);
+        params[a.key] = Array.from(boxes).filter(x=>x.checked).map(x=>x.value);
+      } else if (a.widget === 'slider') params[a.key] = parseFloat(el.value);
+      else if (a.widget === 'number_input') params[a.key] = parseFloat(el.value);
+      else params[a.key] = el.value;
+    });
+  }
+  params['_chart_title']    = document.getElementById('param-_chart_title')?.value || '';
+  params['_chart_subtitle'] = document.getElementById('param-_chart_subtitle')?.value || '';
+
+  try {
+    const data = await POST('/api/build', {
+      session_id: S.sid, sheet_name: S.sheet,
+      chart_name: S.chart, columns: S.colVals,
+      params, theme: S.theme,
+      transforms: S.transforms,
+    });
+    S.lastFig = data.figure;
+    switchTab('chart');           // make the container visible FIRST
+    showChartResult(data.figure, data.warnings);
+    toast('Chart built ✓');
+  } catch (e) {
+    switchTab('chart');
+    showChartError(e.message);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '▶ Build Chart';
+  }
+}
+
+function chartHeight() {
+  // Measure live DOM elements so the value is always current.
+  const headerH  = document.querySelector('header')?.offsetHeight || 52;
+  const tabBarH  = document.querySelector('.tab-bar')?.offsetHeight || 45;
+  const warnH    = document.getElementById('chart-warnings')?.offsetHeight || 0;
+  const actionsH = document.querySelector('.chart-actions')?.offsetHeight || 50;
+  const padT     = 24; // top padding of #tab-chart
+  return Math.max(380, window.innerHeight - headerH - tabBarH - warnH - actionsH - padT - 12);
+}
+
+function _renderPlotly(fig) {
+  // Explicit height only — autosize + explicit height conflict in Plotly.
+  fig.layout.height = chartHeight();
+  delete fig.layout.autosize;
+
+  Plotly.react('chart-container', fig.data, fig.layout, {
+    responsive: true,   // Plotly's ResizeObserver handles width changes
+    displayModeBar: true,
+    modeBarButtonsToRemove: ['sendDataToCloud'],
+  });
+
+  // After Plotly's own resize loop settles (one more frame), force a
+  // relayout so it picks up the true container width set by CSS flex.
+  requestAnimationFrame(() => Plotly.Plots.resize('chart-container'));
+}
+
+function showChartResult(fig, warnings) {
+  document.getElementById('chart-empty').style.display = 'none';
+  document.getElementById('chart-result').style.display = 'flex';
+
+  const warnEl = document.getElementById('chart-warnings');
+  warnEl.innerHTML = warnings.length
+    ? warnings.map(w => `<div class="warning-item">⚠ ${esc(w)}</div>`).join('')
+    : '';
+
+  // setTimeout(0) fires after the current task AND after the browser has run
+  // style/layout (unlike requestAnimationFrame which fires before layout).
+  // This guarantees the tab is fully visible and the container has real dimensions.
+  setTimeout(() => _renderPlotly(fig), 0);
+}
+
+// Resize the chart whenever the browser window changes size.
+window.addEventListener('resize', () => {
+  if (!S.lastFig) return;
+  clearTimeout(window._resizeTimer);
+  // Debounce: wait until the resize event stops firing before relaying out.
+  window._resizeTimer = setTimeout(() => {
+    Plotly.relayout('chart-container', { height: chartHeight() });
+    Plotly.Plots.resize('chart-container');
+  }, 80);
+});
+
+function showChartError(msg) {
+  document.getElementById('chart-empty').style.display = 'none';
+  const res = document.getElementById('chart-result');
+  res.style.display = 'block';
+  document.getElementById('chart-warnings').innerHTML =
+    `<div class="warning-item" style="background:#fef2f2;border-color:#fca5a5;color:#991b1b">
+      ✕ ${esc(msg)}</div>`;
+  document.getElementById('chart-container').innerHTML = '';
+}
+
+function resetChart() {
+  document.getElementById('chart-empty').style.display = 'flex';
+  document.getElementById('chart-result').style.display = 'none';
+  S.lastFig = null;
+}
+
+// ── Suggestions ────────────────────────────────────────────────────────────────
+async function loadSuggestions() {
+  S.engine = document.getElementById('qs-engine').value;
+  const content = document.getElementById('qs-content');
+  content.innerHTML = `<div class="empty-state"><div class="spinner"></div><p>Analysing data…</p></div>`;
+
+  try {
+    const data = await POST('/api/suggest', {
+      session_id: S.sid, sheet_name: S.sheet,
+      engine: S.engine, transforms: S.transforms,
+    });
+    S.suggestions = data.suggestions;
+    renderSuggestions(data.suggestions);
+  } catch (e) {
+    content.innerHTML = `<div class="empty-state"><p style="color:var(--danger)">⚠ ${esc(e.message)}</p></div>`;
+  }
+}
+
+function renderSuggestions(suggestions) {
+  const content = document.getElementById('qs-content');
+  const valid = suggestions.filter(s => s.available);
+  if (!valid.length) {
+    content.innerHTML = `<div class="empty-state"><div class="empty-icon">🔍</div>
+      <p>No suggestions found. Try a different engine or upload a richer file.</p></div>`;
+    return;
+  }
+
+  const cards = valid.map((s, i) => {
+    const score = Math.round(s.score * 100);
+    const colTags = Object.entries(s.columns)
+      .filter(([,v]) => v)
+      .map(([k,v]) => `<span class="sug-col-tag"><b>${esc(k)}</b> ${esc(v)}</span>`)
+      .join('');
+    const transformHints = s.transforms?.length
+      ? `<div class="sug-transforms">✦ Suggested transforms: ${
+          s.transforms.slice(0,3).map(t => esc(t.label||'')).filter(Boolean).join(' · ')
+        }</div>` : '';
+    return `<div class="sug-card${s.available?'':' sug-unavail'}">
+      <div class="sug-card-header">
+        <div class="sug-card-info">
+          <div class="sug-title">${esc(s.title)}</div>
+          <span class="sug-type">${esc(s.chart_name)}</span>
+        </div>
+        <button class="btn-apply" onclick="applySuggestion(${i})">Apply &amp; Build</button>
+      </div>
+      <div class="sug-rationale">${esc(s.rationale)}</div>
+      <div class="sug-score-bar"><div class="sug-score-fill" style="width:${score}%"></div></div>
+      <div style="font-size:11px;color:var(--muted);margin-bottom:6px">Confidence: ${score}%</div>
+      <div class="sug-cols">${colTags}</div>
+      ${transformHints}
+    </div>`;
+  }).join('');
+
+  content.innerHTML = `<div class="cards-grid">${cards}</div>`;
+}
+
+async function applySuggestion(i) {
+  const s = S.suggestions.filter(x => x.available)[i];
+  if (!s) return;
+
+  // Set chart type
+  S.chart = s.chart_name;
+  document.getElementById('sb-chart').value = s.chart_name;
+
+  // Load specs for this chart
+  await loadSpecs(s.chart_name);
+
+  // Apply column mapping
+  S.colVals = {};
+  Object.entries(s.columns).forEach(([role, col]) => {
+    if (col) S.colVals[role] = col;
+  });
+
+  // Apply params
+  S.paramVals = { ...s.params };
+  if (S.specs) {
+    S.specs.assumptions.forEach(a => {
+      const el = document.getElementById(`param-${a.key}`);
+      if (!el) return;
+      const val = s.params[a.key] !== undefined ? s.params[a.key] : a.default;
+      if (a.widget === 'toggle') { el.checked = !!val; }
+      else if (a.widget === 'multiselect') {
+        const boxes = document.querySelectorAll(`input[name="ms-${a.key}"]`);
+        const selected = Array.isArray(val) ? val : [];
+        boxes.forEach(b => { b.checked = selected.includes(b.value); });
+      } else if (a.widget === 'slider') {
+        el.value = val;
+        const disp = document.getElementById(`param-${a.key}-val`);
+        if (disp) disp.textContent = val;
+      } else { el.value = val; }
+    });
+  }
+
+  // Apply column selects
+  S.specs?.columns.forEach((spec, idx) => {
+    const form = document.getElementById('sb-cols-form');
+    const sel = form?.querySelectorAll('select')[idx];
+    if (sel && S.colVals[spec.role]) sel.value = S.colVals[spec.role];
+  });
+
+  // Apply transforms
+  if (s.transforms?.length) {
+    const filters    = s.transforms.filter(t => t.type === 'filter');
+    const date_parts = s.transforms.filter(t => t.type === 'date_part');
+    const derived    = s.transforms.filter(t => t.type === 'derived');
+    if (filters.length)    S.transforms.filters    = filters.map(f => ({column:f.column,operator:f.operator,value:f.value}));
+    if (date_parts.length) S.transforms.date_parts = date_parts.map(d => ({source_column:d.source_column,part:d.part}));
+    if (derived.length)    S.transforms.derived_cols = derived.map(d => ({name:d.name,expression:d.expression}));
+    renderTransformSection();
+    // Open the transforms section
+    document.getElementById('transforms-group').open = true;
+  }
+
+  // Build
+  await buildChart();
+}
+
+// ── Data tab ───────────────────────────────────────────────────────────────────
+function renderDataTab() {
+  const content = document.getElementById('data-content');
+  if (!S.cols.length) return;
+
+  const preview = S.cols.slice(0, 20); // max 20 cols in preview
+  const header = preview.map(c =>
+    `<th title="${esc(c.type)}">${esc(c.name)} <span style="color:var(--border);font-size:9px">${esc(c.type)}</span></th>`
+  ).join('');
+
+  content.innerHTML = `
+    <div class="data-meta">
+      <div class="data-stat"><div class="ds-val">${S.rows.toLocaleString()}</div><div class="ds-lbl">Rows</div></div>
+      <div class="data-stat"><div class="ds-val">${S.cols.length}</div><div class="ds-lbl">Columns</div></div>
+      <div class="data-stat"><div class="ds-val">${S.cols.filter(c=>c.type==='numeric').length}</div><div class="ds-lbl">Numeric</div></div>
+      <div class="data-stat"><div class="ds-val">${S.cols.filter(c=>c.type==='datetime').length}</div><div class="ds-lbl">Date/Time</div></div>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr>${header}</tr></thead>
+        <tbody><tr>${preview.map(c=>`<td style="color:var(--muted);font-size:11px">${esc(c.sample)}</td>`).join('')}</tr>
+        <tr><td colspan="${preview.length}" style="color:var(--muted);font-size:11px;text-align:center;padding:8px">
+          Preview shows column types and first row value. Use the Chart tab to visualise your data.
+        </td></tr></tbody>
+      </table>
+    </div>`;
+}
+
+// ── Export ─────────────────────────────────────────────────────────────────────
+async function downloadChart(fmt) {
+  if (!S.lastFig) { toast('Build a chart first'); return; }
+
+  if (fmt === 'svg') {
+    // Plotly.toImage for SVG returns a data: URI; wire explicit dimensions
+    // so the SVG has a viewBox even though the displayed chart is fluid.
+    try {
+      const dataUri = await Plotly.toImage('chart-container', {
+        format: 'svg', width: 1400, height: 800,
+      });
+      // dataUri is "data:image/svg+xml,<url-encoded-svg>" — decode it
+      const svgText = decodeURIComponent(dataUri.split(',', 2)[1]);
+      const blob = new Blob([svgText], { type: 'image/svg+xml;charset=utf-8' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = 'cerp_chart.svg';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(a.href);
+    } catch (_) {
+      // Fallback: grab the live SVG element directly from the DOM
+      const mainSvg = document.querySelector('#chart-container svg.main-svg');
+      if (!mainSvg) { toast('SVG export failed — build a chart first'); return; }
+      const clone = mainSvg.cloneNode(true);
+      clone.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+      clone.setAttribute('xmlns:xlink', 'http://www.w3.org/1999/xlink');
+      const svgText = '<?xml version="1.0" encoding="UTF-8"?>\n'
+        + new XMLSerializer().serializeToString(clone);
+      const blob = new Blob([svgText], { type: 'image/svg+xml;charset=utf-8' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = 'cerp_chart.svg';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(a.href);
+    }
+    return;
+  }
+
+  // PNG — Plotly.downloadImage works fine for raster formats
+  Plotly.downloadImage('chart-container', { format: fmt, filename: 'cerp_chart', width: 1400, height: 800 });
+}
+
+function downloadHTML() {
+  if (!S.lastFig) { toast('Build a chart first'); return; }
+  const html = `<!DOCTYPE html><html><head>
+    <script src="https://cdn.plot.ly/plotly-2.35.2.min.js"><\/script>
+    </head><body><div id="c"></div>
+    <script>Plotly.newPlot('c',${JSON.stringify(S.lastFig.data)},${JSON.stringify(S.lastFig.layout)},{responsive:true})<\/script>
+    </body></html>`;
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([html], {type:'text/html'}));
+  a.download = 'cerp_chart.html';
+  a.click();
+}
+
+// ── Tab switching ──────────────────────────────────────────────────────────────
+function switchTab(name) {
+  document.querySelectorAll('.tab-btn').forEach(b => {
+    b.classList.toggle('active', b.dataset.tab === name);
+  });
+  document.querySelectorAll('.tab-content').forEach(t => {
+    t.classList.toggle('active', t.id === `tab-${name}`);
+  });
+  S.tab = name;
+}
+
+document.querySelectorAll('.tab-btn').forEach(btn => {
+  btn.addEventListener('click', () => switchTab(btn.dataset.tab));
+});
+
+// ── Screen switching ───────────────────────────────────────────────────────────
+function showApp() {
+  document.getElementById('upload-screen').style.display = 'none';
+  document.getElementById('app').style.display = 'flex';
+}
+
+function changeFile() {
+  document.getElementById('app').style.display = 'none';
+  document.getElementById('upload-screen').style.display = 'flex';
+  S.sid = null;
+  S.lastFig = null;
+  resetChart();
+}
+
+// ── File input events ──────────────────────────────────────────────────────────
+const fileInput = document.getElementById('file-input');
+const dropzone  = document.getElementById('dropzone');
+
+fileInput.addEventListener('change', e => {
+  if (e.target.files[0]) uploadFile(e.target.files[0]);
+});
+
+dropzone.addEventListener('dragover', e => { e.preventDefault(); dropzone.classList.add('drag-over'); });
+dropzone.addEventListener('dragleave', () => dropzone.classList.remove('drag-over'));
+dropzone.addEventListener('drop', e => {
+  e.preventDefault();
+  dropzone.classList.remove('drag-over');
+  const f = e.dataTransfer.files[0];
+  if (f) uploadFile(f);
+});
+
+// ── Toast ──────────────────────────────────────────────────────────────────────
+let toastTimer;
+function toast(msg) {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => el.classList.remove('show'), 2800);
+}
+
+// ── Util ───────────────────────────────────────────────────────────────────────
+function esc(s) {
+  if (s === null || s === undefined) return '';
+  return String(s)
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+    .replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+}
+</script>
+</body>
+</html>
