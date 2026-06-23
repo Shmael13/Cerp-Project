@@ -16,7 +16,8 @@ import cerp_viz.charts        # noqa: F401 — side-effect: registers all chart 
 from cerp_viz.core.registry import registry
 from cerp_viz.core.theme import THEMES, apply_theme
 from cerp_viz.core.transform import (
-    DatePart, DerivedColumn, FilterRule, TopNRule, TransformConfig, apply_transforms,
+    BinRule, ColTransformRule, DatePart, DerivedColumn, FillNullRule,
+    FilterRule, NormalizeRule, RollingRule, TopNRule, TransformConfig, apply_transforms,
 )
 
 
@@ -63,10 +64,8 @@ def to_transform_cfg(d: dict) -> TransformConfig:
         ],
         top_n=[
             TopNRule(
-                cat_column=t["cat_column"],
-                num_column=t["num_column"],
-                n=int(t.get("n", 10)),
-                agg=t.get("agg", "sum"),
+                cat_column=t["cat_column"], num_column=t["num_column"],
+                n=int(t.get("n", 10)), agg=t.get("agg", "sum"),
             )
             for t in d.get("top_n", []) if t.get("cat_column") and t.get("num_column")
         ],
@@ -77,6 +76,42 @@ def to_transform_cfg(d: dict) -> TransformConfig:
         derived_cols=[
             DerivedColumn(name=dc["name"], expression=dc["expression"])
             for dc in d.get("derived_cols", []) if dc.get("name") and dc.get("expression")
+        ],
+        col_exprs=[
+            ColTransformRule(
+                column=t["column"], expression=t["expression"],
+                new_name=t.get("new_name", ""),
+            )
+            for t in d.get("col_exprs", []) if t.get("column") and t.get("expression")
+        ],
+        bins=[
+            BinRule(
+                column=t["column"], n_bins=int(t.get("n_bins", 10)),
+                strategy=t.get("strategy", "equal_width"), new_name=t.get("new_name", ""),
+            )
+            for t in d.get("bins", []) if t.get("column")
+        ],
+        normalize=[
+            NormalizeRule(
+                column=t["column"], method=t.get("method", "min_max"),
+                new_name=t.get("new_name", ""),
+            )
+            for t in d.get("normalize", []) if t.get("column")
+        ],
+        fill_nulls=[
+            FillNullRule(
+                column=t["column"], method=t.get("method", "mean"),
+                value=t.get("value", ""),
+            )
+            for t in d.get("fill_nulls", []) if t.get("column")
+        ],
+        rolling=[
+            RollingRule(
+                column=t["column"], window=int(t.get("window", 3)),
+                agg=t.get("agg", "mean"), sort_col=t.get("sort_col", ""),
+                new_name=t.get("new_name", ""),
+            )
+            for t in d.get("rolling", []) if t.get("column")
         ],
     )
 

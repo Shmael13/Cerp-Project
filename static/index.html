@@ -365,6 +365,11 @@ tr:hover td{background:#f8fafc}
         <details class="param-group" id="transforms-group">
           <summary>🔧 Transforms</summary>
           <div style="padding-top:10px">
+            <!-- Column Expressions -->
+            <div class="sb-label" style="margin-bottom:6px">Column Expressions <span style="font-size:10px;color:var(--muted)">ƒ(x) — log, sqrt, x², x/1000…</span></div>
+            <div id="colexprs-list"></div>
+            <button class="btn-add" onclick="addColExpr()">+ Add Expression</button>
+            <div style="height:10px"></div>
             <!-- Row Filters -->
             <div class="sb-label" style="margin-bottom:6px">Row Filters</div>
             <div id="filters-list"></div>
@@ -381,9 +386,29 @@ tr:hover td{background:#f8fafc}
             <button class="btn-add" onclick="addDatePart()">+ Add Date Part</button>
             <div style="height:10px"></div>
             <!-- Derived Columns -->
-            <div class="sb-label" style="margin-bottom:6px">Derived Columns  <span style="font-size:10px;color:var(--muted)">(pandas expr)</span></div>
+            <div class="sb-label" style="margin-bottom:6px">Derived Columns  <span style="font-size:10px;color:var(--muted)">(multi-col pandas expr)</span></div>
             <div id="derived-list"></div>
             <button class="btn-add" onclick="addDerived()">+ Add Column</button>
+            <div style="height:10px"></div>
+            <!-- Bin Numeric -->
+            <div class="sb-label" style="margin-bottom:6px">Bin Numeric</div>
+            <div id="bins-list"></div>
+            <button class="btn-add" onclick="addBin()">+ Add Bin</button>
+            <div style="height:10px"></div>
+            <!-- Normalize -->
+            <div class="sb-label" style="margin-bottom:6px">Normalize</div>
+            <div id="normalize-list"></div>
+            <button class="btn-add" onclick="addNormalize()">+ Add Normalize</button>
+            <div style="height:10px"></div>
+            <!-- Fill Nulls -->
+            <div class="sb-label" style="margin-bottom:6px">Fill Nulls</div>
+            <div id="fillnulls-list"></div>
+            <button class="btn-add" onclick="addFillNull()">+ Add Fill</button>
+            <div style="height:10px"></div>
+            <!-- Rolling Window -->
+            <div class="sb-label" style="margin-bottom:6px">Rolling Window</div>
+            <div id="rolling-list"></div>
+            <button class="btn-add" onclick="addRolling()">+ Add Rolling</button>
           </div>
         </details>
       </div>
@@ -476,7 +501,7 @@ const S = {
   sid: null, sheets: [], sheet: null, cols: [], rows: 0,
   charts: [], chart: null, specs: null,
   colVals: {}, paramVals: {},
-  transforms: { filters: [], top_n: [], date_parts: [], derived_cols: [] },
+  transforms: { filters: [], top_n: [], date_parts: [], derived_cols: [], col_exprs: [], bins: [], normalize: [], fill_nulls: [], rolling: [] },
   tab: 'quickstart', theme: 'Light',
   themes: [], engines: [], engine: 'Smart (Statistical + Rule-Based)',
   suggestions: [],
@@ -592,7 +617,7 @@ async function onSheetChange() {
   S.rows = data.rows;
   S.colVals = {};
   S.paramVals = {};
-  S.transforms = { filters: [], top_n: [], date_parts: [], derived_cols: [] };
+  S.transforms = { filters: [], top_n: [], date_parts: [], derived_cols: [], col_exprs: [], bins: [], normalize: [], fill_nulls: [], rolling: [] };
   resetChart();
   await loadSpecs(S.chart);
   renderDataTab();
@@ -754,10 +779,15 @@ function renderParamWidget(a) {
 
 // ── Transforms ─────────────────────────────────────────────────────────────────
 function renderTransformSection() {
+  renderColExprList();
   renderFiltersList();
   renderTopNList();
   renderDatePartsList();
   renderDerivedList();
+  renderBinList();
+  renderNormalizeList();
+  renderFillNullList();
+  renderRollingList();
 }
 
 function renderFiltersList() {
@@ -887,6 +917,170 @@ function addDatePart() {
   renderDatePartsList();
 }
 function removeDatePart(i) { S.transforms.date_parts.splice(i, 1); renderDatePartsList(); }
+
+// ── Column Expression renders (ƒ(x)) ──────────────────────────────────────────
+function renderColExprList() {
+  const el = document.getElementById('colexprs-list');
+  if (!el) return;
+  const arr = S.transforms.col_exprs || [];
+  const colOpts = S.cols.map(c => `<option value="${esc(c.name)}">${esc(c.name)}</option>`).join('');
+  el.innerHTML = arr.map((t, i) => {
+    const opts = S.cols.map(c =>
+      `<option value="${esc(c.name)}"${c.name===t.column?' selected':''}>${esc(c.name)}</option>`).join('');
+    return `<div class="transform-row" style="flex-direction:column;align-items:stretch;gap:4px">
+      <div style="display:flex;gap:4px">
+        <select class="sb-select" style="font-size:11px;flex:1" onchange="S.transforms.col_exprs[${i}].column=this.value">${opts}</select>
+        <button class="btn-icon" onclick="removeColExpr(${i})">✕</button>
+      </div>
+      <input class="sb-input" style="font-size:11px" placeholder="ƒ(x) e.g. log(x), x/1000, sqrt(abs(x))"
+        value="${esc(t.expression)}" onchange="S.transforms.col_exprs[${i}].expression=this.value"/>
+      <input class="sb-input" style="font-size:11px" placeholder="New column name (blank = overwrite)"
+        value="${esc(t.new_name||'')}" onchange="S.transforms.col_exprs[${i}].new_name=this.value"/>
+    </div>`;
+  }).join('');
+}
+function addColExpr() {
+  if ((S.transforms.col_exprs||[]).length >= 6) { toast('Maximum 6 column expressions'); return; }
+  if (!S.transforms.col_exprs) S.transforms.col_exprs = [];
+  S.transforms.col_exprs.push({ column: S.cols[0]?.name || '', expression: '', new_name: '' });
+  renderColExprList();
+}
+function removeColExpr(i) { S.transforms.col_exprs.splice(i, 1); renderColExprList(); }
+
+// ── Bin Numeric renders ────────────────────────────────────────────────────────
+function renderBinList() {
+  const el = document.getElementById('bins-list');
+  if (!el) return;
+  const arr  = S.transforms.bins || [];
+  const nums = S.cols.filter(c => c.type === 'numeric');
+  el.innerHTML = arr.map((t, i) => {
+    const opts = nums.map(c =>
+      `<option value="${esc(c.name)}"${c.name===t.column?' selected':''}>${esc(c.name)}</option>`).join('');
+    const stratOpts = ['equal_width','quantile'].map(s =>
+      `<option value="${s}"${s===t.strategy?' selected':''}>${s}</option>`).join('');
+    return `<div class="transform-row" style="flex-wrap:wrap;gap:4px">
+      <select class="sb-select" style="font-size:11px;flex:2" onchange="S.transforms.bins[${i}].column=this.value">${opts}</select>
+      <select class="sb-select" style="font-size:11px;flex:1" onchange="S.transforms.bins[${i}].strategy=this.value">${stratOpts}</select>
+      <input class="sb-input" style="font-size:11px;width:42px" type="number" min="2" max="100"
+        value="${t.n_bins||10}" title="N buckets" onchange="S.transforms.bins[${i}].n_bins=+this.value"/>
+      <input class="sb-input" style="font-size:11px;flex:1" placeholder="New col name"
+        value="${esc(t.new_name||'')}" onchange="S.transforms.bins[${i}].new_name=this.value"/>
+      <button class="btn-icon" onclick="removeBin(${i})">✕</button>
+    </div>`;
+  }).join('');
+}
+function addBin() {
+  if ((S.transforms.bins||[]).length >= 3) { toast('Maximum 3 bin rules'); return; }
+  const nums = S.cols.filter(c => c.type === 'numeric');
+  if (!nums.length) { toast('No numeric columns'); return; }
+  if (!S.transforms.bins) S.transforms.bins = [];
+  S.transforms.bins.push({ column: nums[0].name, n_bins: 10, strategy: 'equal_width', new_name: '' });
+  renderBinList();
+}
+function removeBin(i) { S.transforms.bins.splice(i, 1); renderBinList(); }
+
+// ── Normalize renders ──────────────────────────────────────────────────────────
+function renderNormalizeList() {
+  const el = document.getElementById('normalize-list');
+  if (!el) return;
+  const arr  = S.transforms.normalize || [];
+  const nums = S.cols.filter(c => c.type === 'numeric');
+  el.innerHTML = arr.map((t, i) => {
+    const opts = nums.map(c =>
+      `<option value="${esc(c.name)}"${c.name===t.column?' selected':''}>${esc(c.name)}</option>`).join('');
+    const methOpts = ['min_max','z_score','pct_of_total'].map(m =>
+      `<option value="${m}"${m===t.method?' selected':''}>${m}</option>`).join('');
+    return `<div class="transform-row" style="flex-wrap:wrap;gap:4px">
+      <select class="sb-select" style="font-size:11px;flex:2" onchange="S.transforms.normalize[${i}].column=this.value">${opts}</select>
+      <select class="sb-select" style="font-size:11px;flex:1" onchange="S.transforms.normalize[${i}].method=this.value">${methOpts}</select>
+      <input class="sb-input" style="font-size:11px;flex:1" placeholder="New col name"
+        value="${esc(t.new_name||'')}" onchange="S.transforms.normalize[${i}].new_name=this.value"/>
+      <button class="btn-icon" onclick="removeNormalize(${i})">✕</button>
+    </div>`;
+  }).join('');
+}
+function addNormalize() {
+  if ((S.transforms.normalize||[]).length >= 3) { toast('Maximum 3 normalize rules'); return; }
+  const nums = S.cols.filter(c => c.type === 'numeric');
+  if (!nums.length) { toast('No numeric columns'); return; }
+  if (!S.transforms.normalize) S.transforms.normalize = [];
+  S.transforms.normalize.push({ column: nums[0].name, method: 'min_max', new_name: '' });
+  renderNormalizeList();
+}
+function removeNormalize(i) { S.transforms.normalize.splice(i, 1); renderNormalizeList(); }
+
+// ── Fill Null renders ──────────────────────────────────────────────────────────
+function renderFillNullList() {
+  const el = document.getElementById('fillnulls-list');
+  if (!el) return;
+  const arr = S.transforms.fill_nulls || [];
+  el.innerHTML = arr.map((t, i) => {
+    const opts = S.cols.map(c =>
+      `<option value="${esc(c.name)}"${c.name===t.column?' selected':''}>${esc(c.name)}</option>`).join('');
+    const methOpts = ['mean','median','zero','ffill','bfill','value'].map(m =>
+      `<option value="${m}"${m===t.method?' selected':''}>${m}</option>`).join('');
+    const needVal = t.method === 'value';
+    return `<div class="transform-row" style="flex-wrap:wrap;gap:4px">
+      <select class="sb-select" style="font-size:11px;flex:2" onchange="S.transforms.fill_nulls[${i}].column=this.value">${opts}</select>
+      <select class="sb-select" style="font-size:11px;flex:1" onchange="updateFillMethod(${i},this.value)">${methOpts}</select>
+      <input class="sb-input" style="font-size:11px;width:70px" placeholder="value"
+        value="${esc(t.value||'')}" onchange="S.transforms.fill_nulls[${i}].value=this.value"
+        ${needVal?'':'disabled style="opacity:.3"'}/>
+      <button class="btn-icon" onclick="removeFillNull(${i})">✕</button>
+    </div>`;
+  }).join('');
+}
+function updateFillMethod(i, val) {
+  S.transforms.fill_nulls[i].method = val;
+  renderFillNullList();
+}
+function addFillNull() {
+  if ((S.transforms.fill_nulls||[]).length >= 4) { toast('Maximum 4 fill rules'); return; }
+  if (!S.transforms.fill_nulls) S.transforms.fill_nulls = [];
+  S.transforms.fill_nulls.push({ column: S.cols[0]?.name || '', method: 'mean', value: '' });
+  renderFillNullList();
+}
+function removeFillNull(i) { S.transforms.fill_nulls.splice(i, 1); renderFillNullList(); }
+
+// ── Rolling Window renders ─────────────────────────────────────────────────────
+function renderRollingList() {
+  const el = document.getElementById('rolling-list');
+  if (!el) return;
+  const arr  = S.transforms.rolling || [];
+  const nums = S.cols.filter(c => c.type === 'numeric');
+  const all  = S.cols;
+  el.innerHTML = arr.map((t, i) => {
+    const numOpts = nums.map(c =>
+      `<option value="${esc(c.name)}"${c.name===t.column?' selected':''}>${esc(c.name)}</option>`).join('');
+    const sortOpts = [{ name: '' }].concat(all).map(c =>
+      `<option value="${esc(c.name)}"${c.name===(t.sort_col||'')?' selected':''}>${c.name||'(keep order)'}</option>`).join('');
+    const aggOpts = ['mean','sum','max','min','std'].map(a =>
+      `<option value="${a}"${a===t.agg?' selected':''}>${a}</option>`).join('');
+    return `<div class="transform-row" style="flex-direction:column;align-items:stretch;gap:4px">
+      <div style="display:flex;gap:4px">
+        <select class="sb-select" style="font-size:11px;flex:2" title="Column to roll" onchange="S.transforms.rolling[${i}].column=this.value">${numOpts}</select>
+        <select class="sb-select" style="font-size:11px;width:52px" onchange="S.transforms.rolling[${i}].agg=this.value">${aggOpts}</select>
+        <input class="sb-input" style="font-size:11px;width:42px" type="number" min="2" max="365"
+          value="${t.window||3}" title="Window size" onchange="S.transforms.rolling[${i}].window=+this.value"/>
+        <button class="btn-icon" onclick="removeRolling(${i})">✕</button>
+      </div>
+      <div style="display:flex;gap:4px">
+        <select class="sb-select" style="font-size:11px;flex:2" title="Sort by (optional)" onchange="S.transforms.rolling[${i}].sort_col=this.value">${sortOpts}</select>
+        <input class="sb-input" style="font-size:11px;flex:1" placeholder="New col name"
+          value="${esc(t.new_name||'')}" onchange="S.transforms.rolling[${i}].new_name=this.value"/>
+      </div>
+    </div>`;
+  }).join('');
+}
+function addRolling() {
+  if ((S.transforms.rolling||[]).length >= 3) { toast('Maximum 3 rolling rules'); return; }
+  const nums = S.cols.filter(c => c.type === 'numeric');
+  if (!nums.length) { toast('No numeric columns'); return; }
+  if (!S.transforms.rolling) S.transforms.rolling = [];
+  S.transforms.rolling.push({ column: nums[0].name, window: 3, agg: 'mean', sort_col: '', new_name: '' });
+  renderRollingList();
+}
+function removeRolling(i) { S.transforms.rolling.splice(i, 1); renderRollingList(); }
 
 // ── Build chart ────────────────────────────────────────────────────────────────
 async function buildChart() {
@@ -1144,10 +1338,17 @@ async function applySuggestion(i) {
 
   // Apply transforms — replace each category if the suggestion provides it
   if (s.transforms?.length) {
-    const filters    = s.transforms.filter(t => t.type === 'filter');
-    const top_n      = s.transforms.filter(t => t.type === 'top_n');
-    const date_parts = s.transforms.filter(t => t.type === 'date_part');
-    const derived    = s.transforms.filter(t => t.type === 'derived');
+    const byType = t => s.transforms.filter(x => x.type === t);
+    const filters    = byType('filter');
+    const top_n      = byType('top_n');
+    const date_parts = byType('date_part');
+    const derived    = byType('derived');
+    const col_exprs  = byType('col_expr');
+    const bins       = byType('bin');
+    const normalize  = byType('normalize');
+    const fill_nulls = byType('fill_nulls');
+    const rolling    = byType('rolling');
+
     if (filters.length)
       S.transforms.filters = filters.map(f => ({column:f.column, operator:f.operator, value:f.value||''}));
     if (top_n.length)
@@ -1156,6 +1357,17 @@ async function applySuggestion(i) {
       S.transforms.date_parts = date_parts.map(d => ({source_column:d.source_column, part:d.part}));
     if (derived.length)
       S.transforms.derived_cols = derived.map(d => ({name:d.name, expression:d.expression}));
+    if (col_exprs.length)
+      S.transforms.col_exprs = col_exprs.map(t => ({column:t.column, expression:t.expression, new_name:t.new_name||''}));
+    if (bins.length)
+      S.transforms.bins = bins.map(t => ({column:t.column, n_bins:t.n_bins||10, strategy:t.strategy||'equal_width', new_name:t.new_name||''}));
+    if (normalize.length)
+      S.transforms.normalize = normalize.map(t => ({column:t.column, method:t.method||'min_max', new_name:t.new_name||''}));
+    if (fill_nulls.length)
+      S.transforms.fill_nulls = fill_nulls.map(t => ({column:t.column, method:t.method||'mean', value:t.value||''}));
+    if (rolling.length)
+      S.transforms.rolling = rolling.map(t => ({column:t.column, window:t.window||3, agg:t.agg||'mean', sort_col:t.sort_col||'', new_name:t.new_name||''}));
+
     renderTransformSection();
     document.getElementById('transforms-group').open = true;
   }
@@ -1274,10 +1486,15 @@ function _applyConfig(cfg) {
   if (cfg.params)     S.paramVals = cfg.params;
   if (cfg.transforms) {
     S.transforms = {
-      filters:     cfg.transforms.filters     || [],
-      top_n:       cfg.transforms.top_n       || [],
-      date_parts:  cfg.transforms.date_parts  || [],
-      derived_cols:cfg.transforms.derived_cols || [],
+      filters:      cfg.transforms.filters      || [],
+      top_n:        cfg.transforms.top_n        || [],
+      date_parts:   cfg.transforms.date_parts   || [],
+      derived_cols: cfg.transforms.derived_cols || [],
+      col_exprs:    cfg.transforms.col_exprs    || [],
+      bins:         cfg.transforms.bins         || [],
+      normalize:    cfg.transforms.normalize    || [],
+      fill_nulls:   cfg.transforms.fill_nulls   || [],
+      rolling:      cfg.transforms.rolling      || [],
     };
   }
   if (cfg.theme) S.theme = cfg.theme;
