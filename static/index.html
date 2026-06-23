@@ -259,6 +259,18 @@ td{padding:7px 12px;border-bottom:1px solid var(--border);color:var(--text)}
 tr:last-child td{border-bottom:none}
 tr:hover td{background:#f8fafc}
 
+/* ── AI Interpretation panel ───────────────────────────────────────────────── */
+#ai-interpretation{
+  margin:12px 0 0;padding:14px 16px;
+  background:linear-gradient(135deg,#f0f9ff,#e0f2fe);
+  border:1px solid #bae6fd;border-radius:var(--r);
+  font-size:13px;line-height:1.7;color:#0c4a6e;position:relative}
+#ai-interpretation .ai-label{
+  font-size:10px;font-weight:700;letter-spacing:.08em;
+  color:#0284c7;text-transform:uppercase;margin-bottom:6px}
+#ai-interpretation .ai-loading{
+  display:flex;align-items:center;gap:8px;color:#0369a1}
+
 /* ── Toast ─────────────────────────────────────────────────────────────────── */
 #toast{
   position:fixed;bottom:24px;right:24px;background:var(--text);color:#fff;
@@ -414,7 +426,9 @@ tr:hover td{background:#f8fafc}
             <button class="btn-outline" onclick="downloadChart('png')">⬇ PNG</button>
             <button class="btn-outline" onclick="downloadChart('svg')">⬇ SVG</button>
             <button class="btn-outline" onclick="downloadHTML()">⬇ HTML</button>
+            <button class="btn-outline" id="btn-interpret" onclick="interpretChart()" style="display:none">✦ AI Interpret</button>
           </div>
+          <div id="ai-interpretation" style="display:none"></div>
         </div>
       </div>
 
@@ -444,7 +458,8 @@ const S = {
   themes: [], engines: [], engine: 'Smart (Statistical + Rule-Based)',
   suggestions: [],
   operators: [], dateParts: [],
-  lastFig: null,
+  lastFig: null, lastWarnings: [],
+  aiAvailable: false,
 };
 
 // ── API helpers ────────────────────────────────────────────────────────────────
@@ -503,17 +518,19 @@ function hideUploadError() {
 
 // ── Init ───────────────────────────────────────────────────────────────────────
 async function initApp() {
-  const [charts, engines, themes, ops] = await Promise.all([
+  const [charts, engines, themes, ops, aiStatus] = await Promise.all([
     GET('/api/charts'),
     GET('/api/engines'),
     GET('/api/themes'),
     GET('/api/operators'),
+    GET('/api/ai/status').catch(() => ({ available: false })),
   ]);
-  S.charts    = charts.charts;
-  S.engines   = engines.engines;
-  S.themes    = themes.themes;
-  S.operators = ops.operators;
-  S.dateParts = ops.date_parts;
+  S.charts      = charts.charts;
+  S.engines     = engines.engines;
+  S.themes      = themes.themes;
+  S.operators   = ops.operators;
+  S.dateParts   = ops.date_parts;
+  S.aiAvailable = aiStatus.available;
 
   // Sheet picker
   const sbSheet = document.getElementById('sb-sheet');
@@ -818,7 +835,8 @@ async function buildChart() {
       params, theme: S.theme,
       transforms: S.transforms,
     });
-    S.lastFig = data.figure;
+    S.lastFig      = data.figure;
+    S.lastWarnings = data.warnings || [];
     switchTab('chart');           // make the container visible FIRST
     showChartResult(data.figure, data.warnings);
     toast('Chart built ✓');
@@ -866,10 +884,44 @@ function showChartResult(fig, warnings) {
     ? warnings.map(w => `<div class="warning-item">⚠ ${esc(w)}</div>`).join('')
     : '';
 
+  // Reset AI panel on new chart build
+  const aiPanel = document.getElementById('ai-interpretation');
+  aiPanel.style.display = 'none';
+  aiPanel.innerHTML = '';
+
+  // Show AI button only when AI is available
+  if (S.aiAvailable) {
+    document.getElementById('btn-interpret').style.display = '';
+  }
+
   // setTimeout(0) fires after the current task AND after the browser has run
   // style/layout (unlike requestAnimationFrame which fires before layout).
   // This guarantees the tab is fully visible and the container has real dimensions.
   setTimeout(() => _renderPlotly(fig), 0);
+}
+
+async function interpretChart() {
+  if (!S.lastFig || !S.chart) return;
+  const panel = document.getElementById('ai-interpretation');
+  panel.style.display = 'block';
+  panel.innerHTML = `<div class="ai-label">✦ AI Interpretation</div>
+    <div class="ai-loading"><div class="spinner"></div> Analysing chart…</div>`;
+
+  try {
+    const data = await POST('/api/interpret', {
+      session_id: S.sid,
+      sheet_name: S.sheet,
+      chart_name: S.chart,
+      columns:    S.colVals,
+      params:     S.paramVals,
+      warnings:   S.lastWarnings || [],
+    });
+    panel.innerHTML = `<div class="ai-label">✦ AI Interpretation</div>
+      <div>${esc(data.interpretation)}</div>`;
+  } catch (e) {
+    panel.innerHTML = `<div class="ai-label">✦ AI Interpretation</div>
+      <div style="color:var(--danger)">⚠ ${esc(e.message)}</div>`;
+  }
 }
 
 // Resize the chart whenever the browser window changes size.

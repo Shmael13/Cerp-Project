@@ -215,6 +215,61 @@ async def suggest(req: SuggestRequest):
     ]}
 
 
+# ── AI interpret ──────────────────────────────────────────────────────────────
+
+class InterpretRequest(BaseModel):
+    session_id: str
+    sheet_name: str
+    chart_name: str
+    columns: dict[str, Any]
+    params: dict[str, Any] = {}
+    warnings: list[str] = []
+    file_id: str | None = None
+
+
+@app.post("/api/interpret")
+async def interpret(req: InterpretRequest):
+    from cerp_viz.ai.groq_client import is_available
+    if not is_available():
+        raise HTTPException(503, "AI interpretation unavailable — GROQ_API_KEY not configured.")
+
+    sess   = sess_store.require(req.session_id)
+    df     = sess_store.resolve_df(sess, req.file_id, req.sheet_name)
+    num_df = df.select_dtypes(include="number")
+
+    df_stats: dict = {}
+    for col in req.columns.values():
+        if col and col in num_df.columns:
+            s = num_df[col].describe()
+            df_stats[col] = {"min": float(s["min"]), "max": float(s["max"]), "mean": float(s["mean"])}
+
+    try:
+        viz = registry.get(req.chart_name)()
+    except KeyError:
+        raise HTTPException(400, f"Unknown chart: {req.chart_name}")
+
+    from cerp_viz.ai.groq_interpreter import interpret_chart
+    try:
+        text = interpret_chart(
+            viz_name=req.chart_name,
+            viz_description=viz.description,
+            columns=req.columns,
+            params=req.params,
+            df_stats=df_stats,
+            warnings=req.warnings,
+        )
+    except Exception as exc:
+        raise HTTPException(500, f"AI interpretation failed: {exc}")
+
+    return {"interpretation": text}
+
+
+@app.get("/api/ai/status")
+async def ai_status():
+    from cerp_viz.ai.groq_client import is_available
+    return {"available": is_available()}
+
+
 # ── Meta ───────────────────────────────────────────────────────────────────────
 
 @app.get("/api/engines")

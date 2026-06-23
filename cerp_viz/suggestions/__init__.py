@@ -33,6 +33,17 @@ try:
 except ImportError:
     pass
 
+# Conditionally register Groq suggester if groq package + API key are present
+try:
+    import os as _os
+    from cerp_viz.ai.groq_client import is_available as _groq_ok
+    if _groq_ok():
+        from cerp_viz.suggestions.groq_suggester import GroqSuggester
+        from cerp_viz.suggestions.registry import register as _reg2
+        _reg2("AI (Groq)", GroqSuggester)
+except Exception:
+    pass
+
 from cerp_viz.suggestions import registry as suggester_registry  # noqa: F401
 from cerp_viz.core.suggestions import BaseSuggester              # noqa: F401
 
