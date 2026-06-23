@@ -224,3 +224,92 @@ def suggest_outlier_filter(df: pd.DataFrame, col: str, iqr_k: float = 1.5) -> li
 
 def suggest_derived(name: str, expression: str, label: str) -> dict:
     return {"type": "derived", "name": name, "expression": expression, "label": label}
+
+
+def suggest_top_n_filter(
+    df: pd.DataFrame, cat_col: str, num_col: str, n: int = 10
+) -> list[dict]:
+    """
+    When a categorical column has many distinct values, suggest keeping only the
+    top-N by sum of num_col.  Returns [] when cardinality is already manageable.
+    """
+    if cat_col not in df.columns or num_col not in df.columns:
+        return []
+    try:
+        n_cats = df[cat_col].nunique()
+        if n_cats <= n:
+            return []
+        top = (
+            df.groupby(cat_col)[num_col]
+            .sum()
+            .nlargest(n)
+            .index
+            .tolist()
+        )
+        threshold = (
+            df.groupby(cat_col)[num_col].sum().nlargest(n).min()
+        )
+        return [
+            {
+                "type": "filter",
+                "column": num_col,
+                "operator": "≥",
+                "value": str(round(float(threshold), 2)),
+                "label": f"Keep top {n} {cat_col} by {num_col} ({n_cats} → {n} categories)",
+            }
+        ]
+    except Exception:
+        return []
+
+
+def suggest_ratio_derived(
+    df: pd.DataFrame, numerator: str, denominator: str
+) -> list[dict]:
+    """
+    Suggest a derived ratio column when both columns are numeric and the
+    denominator is never zero.  Returns [] when the ratio is not meaningful.
+    """
+    if numerator not in df.columns or denominator not in df.columns:
+        return []
+    try:
+        denom = pd.to_numeric(df[denominator], errors="coerce")
+        if (denom == 0).any() or denom.isna().all():
+            return []
+        numer = pd.to_numeric(df[numerator], errors="coerce")
+        ratio_mean = float((numer / denom).mean())
+        # Only useful when the ratio is in a plausible 0–1 or 0–100 range
+        if not (0 < abs(ratio_mean) < 200):
+            return []
+        col_name   = f"{numerator}_per_{denominator}"
+        expression = f"{numerator} / {denominator}"
+        return [
+            {
+                "type": "derived",
+                "name": col_name,
+                "expression": expression,
+                "label": f"Compute {numerator} ÷ {denominator} ratio",
+            }
+        ]
+    except Exception:
+        return []
+
+
+def suggest_null_filter(df: pd.DataFrame, col: str) -> list[dict]:
+    """Suggest filtering nulls when >5% of values are missing in key column."""
+    if col not in df.columns:
+        return []
+    try:
+        null_rate = df[col].isna().mean()
+        if null_rate < 0.05:
+            return []
+        return [
+            {
+                "type": "filter",
+                "column": col,
+                "operator": "is not blank",
+                "value": "",
+                "label": f"Remove {null_rate*100:.0f}% blank rows in {col}",
+            }
+        ]
+    except Exception:
+        return []

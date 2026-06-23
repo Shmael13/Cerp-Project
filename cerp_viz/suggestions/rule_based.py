@@ -17,6 +17,7 @@ from cerp_viz.suggestions._utils import (
     best_numeric, best_categorical, cardinality_score,
     has_mixed_sign, default_params, complete_columns, validate_and_complete,
     suggest_date_parts, suggest_outlier_filter, suggest_derived,
+    suggest_top_n_filter, suggest_ratio_derived, suggest_null_filter,
 )
 
 KPI_HINTS    = __import__("re").compile(
@@ -35,6 +36,11 @@ def _bar(df: pd.DataFrame) -> SuggestionResult | None:
     n = df[cat].nunique()
     top_n = min(n, 10) if n > 10 else 0
     agg = "sum" if NUMERIC_HINTS.search(num) else "mean"
+    transforms = (
+        suggest_top_n_filter(df, cat, num, n=10)
+        + suggest_outlier_filter(df, num)
+        + suggest_null_filter(df, num)
+    )
     return SuggestionResult(
         chart_name="Bar Chart",
         columns=complete_columns("Bar Chart", x=cat, y=num, color=None),
@@ -43,6 +49,7 @@ def _bar(df: pd.DataFrame) -> SuggestionResult | None:
         title=f"{num} by {cat}",
         rationale=f"Ranks {n} {cat} categories by {agg} of {num} — shows which categories dominate.",
         score=0.60 + 0.25 * cardinality_score(n),
+        transforms=transforms,
     )
 
 
@@ -81,7 +88,12 @@ def _scatter(df: pd.DataFrame) -> SuggestionResult | None:
     if len(nums) < 2:
         return None
     cats = categorical_cols(df)
-    transforms = suggest_outlier_filter(df, nums[0]) + suggest_outlier_filter(df, nums[1])
+    transforms = (
+        suggest_outlier_filter(df, nums[0])
+        + suggest_outlier_filter(df, nums[1])
+        + suggest_ratio_derived(df, nums[0], nums[1])
+        + suggest_null_filter(df, nums[0])
+    )
     return SuggestionResult(
         chart_name="Scatter Plot",
         columns=complete_columns("Scatter Plot",

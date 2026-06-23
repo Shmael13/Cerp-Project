@@ -61,7 +61,7 @@ AVAILABLE CHART TYPES:
 
 TASK:
 Suggest the {_MAX_SUGGESTIONS} most insightful visualizations for this data.
-Only suggest a chart if its required columns can be filled from the DataFrame above.
+For each suggestion, also recommend any data transforms that would make the chart clearer or more meaningful.
 
 RESPOND WITH ONLY a JSON array (no markdown, no text before or after):
 [
@@ -71,13 +71,36 @@ RESPOND WITH ONLY a JSON array (no markdown, no text before or after):
     "rationale": "<one sentence: what the chart reveals and why it matters>",
     "columns": {{"<role>": "<column name or null>"}},
     "params": {{}},
-    "score": <float 0.0-1.0>
+    "score": <float 0.0-1.0>,
+    "transforms": [
+      {{
+        "type": "filter",
+        "column": "<column name>",
+        "operator": "<one of: =, !=, >, <, >=, <=, contains, is blank, is not blank>",
+        "value": "<string value>",
+        "label": "<short description shown to user>"
+      }},
+      {{
+        "type": "date_part",
+        "source_column": "<datetime column name>",
+        "part": "<one of: Year, Month, Quarter, Day of Week, Hour>",
+        "label": "<short description>"
+      }},
+      {{
+        "type": "derived",
+        "name": "<new column name, no spaces>",
+        "expression": "<pandas-style expression using existing column names e.g. Revenue / Cost>",
+        "label": "<short description>"
+      }}
+    ]
   }}
 ]
 
 Rules:
 - chart_name must exactly match one of the names above.
-- Column names must exist verbatim in the DataFrame.
+- Column names in columns and transforms must exist verbatim in the DataFrame.
+- Only include transforms that genuinely improve the chart (e.g. top-N filter for high cardinality, date extraction for trend charts, ratio derived column for scatter).
+- transforms can be an empty array if no transforms are needed.
 - Return the array sorted by descending score."""
 
 
@@ -114,6 +137,20 @@ def _parse_response(raw: str, df: pd.DataFrame) -> list[SuggestionResult]:
             defaults: dict[str, Any] = {s.key: s.default for s in cls().assumptions()}
             params   = {**defaults, **item.get("params", {})}
 
+            # Validate transforms — drop entries with missing required fields
+            raw_transforms = item.get("transforms", []) or []
+            clean_transforms = []
+            for t in raw_transforms:
+                if not isinstance(t, dict):
+                    continue
+                kind = t.get("type")
+                if kind == "filter" and t.get("column") and t.get("operator"):
+                    clean_transforms.append(t)
+                elif kind == "date_part" and t.get("source_column") and t.get("part"):
+                    clean_transforms.append(t)
+                elif kind == "derived" and t.get("name") and t.get("expression"):
+                    clean_transforms.append(t)
+
             results.append(SuggestionResult(
                 chart_name=chart_name,
                 columns=columns,
@@ -121,6 +158,7 @@ def _parse_response(raw: str, df: pd.DataFrame) -> list[SuggestionResult]:
                 title=str(item.get("title", chart_name)),
                 rationale=str(item.get("rationale", "")),
                 score=float(item.get("score", 0.5)),
+                transforms=clean_transforms,
             ))
         except Exception:
             continue
