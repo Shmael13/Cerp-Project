@@ -83,8 +83,16 @@ RESPOND WITH ONLY a JSON array (no markdown, no text before or after):
       {{
         "type": "date_part",
         "source_column": "<datetime column name>",
-        "part": "<one of: Year, Month, Quarter, Day of Week, Hour>",
+        "part": "<one of: Year, Quarter, Month, Month Num, Week Num, Day of Month, Day of Week, Hour>",
         "label": "<short description>"
+      }},
+      {{
+        "type": "top_n",
+        "cat_column": "<categorical column name>",
+        "num_column": "<numeric column name to rank by>",
+        "n": <integer, typically 10>,
+        "agg": "<one of: sum, mean, max, count>",
+        "label": "<short description e.g. 'Keep top 10 products by revenue'>"
       }},
       {{
         "type": "derived",
@@ -147,6 +155,8 @@ def _parse_response(raw: str, df: pd.DataFrame) -> list[SuggestionResult]:
                 if kind == "filter" and t.get("column") and t.get("operator"):
                     clean_transforms.append(t)
                 elif kind == "date_part" and t.get("source_column") and t.get("part"):
+                    clean_transforms.append(t)
+                elif kind == "top_n" and t.get("cat_column") and t.get("num_column"):
                     clean_transforms.append(t)
                 elif kind == "derived" and t.get("name") and t.get("expression"):
                     clean_transforms.append(t)

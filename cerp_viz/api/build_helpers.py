@@ -16,7 +16,7 @@ import cerp_viz.charts        # noqa: F401 — side-effect: registers all chart 
 from cerp_viz.core.registry import registry
 from cerp_viz.core.theme import THEMES, apply_theme
 from cerp_viz.core.transform import (
-    DatePart, DerivedColumn, FilterRule, TransformConfig, apply_transforms,
+    DatePart, DerivedColumn, FilterRule, TopNRule, TransformConfig, apply_transforms,
 )
 
 
@@ -60,6 +60,15 @@ def to_transform_cfg(d: dict) -> TransformConfig:
         filters=[
             FilterRule(column=f["column"], operator=f["operator"], value=f.get("value", ""))
             for f in d.get("filters", []) if f.get("column")
+        ],
+        top_n=[
+            TopNRule(
+                cat_column=t["cat_column"],
+                num_column=t["num_column"],
+                n=int(t.get("n", 10)),
+                agg=t.get("agg", "sum"),
+            )
+            for t in d.get("top_n", []) if t.get("cat_column") and t.get("num_column")
         ],
         date_parts=[
             DatePart(source_column=dp["source_column"], part=dp["part"])

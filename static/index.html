@@ -365,15 +365,25 @@ tr:hover td{background:#f8fafc}
         <details class="param-group" id="transforms-group">
           <summary>🔧 Transforms</summary>
           <div style="padding-top:10px">
-            <!-- Filters -->
+            <!-- Row Filters -->
             <div class="sb-label" style="margin-bottom:6px">Row Filters</div>
             <div id="filters-list"></div>
             <button class="btn-add" onclick="addFilter()">+ Add Filter</button>
             <div style="height:10px"></div>
-            <!-- Date Parts -->
+            <!-- Top-N Category -->
+            <div class="sb-label" style="margin-bottom:6px">Top-N Category</div>
+            <div id="topn-list"></div>
+            <button class="btn-add" onclick="addTopN()">+ Add Top-N</button>
+            <div style="height:10px"></div>
+            <!-- Date Part Extraction -->
             <div class="sb-label" style="margin-bottom:6px">Date Part Extraction</div>
             <div id="dateparts-list"></div>
             <button class="btn-add" onclick="addDatePart()">+ Add Date Part</button>
+            <div style="height:10px"></div>
+            <!-- Derived Columns -->
+            <div class="sb-label" style="margin-bottom:6px">Derived Columns  <span style="font-size:10px;color:var(--muted)">(pandas expr)</span></div>
+            <div id="derived-list"></div>
+            <button class="btn-add" onclick="addDerived()">+ Add Column</button>
           </div>
         </details>
       </div>
@@ -385,8 +395,16 @@ tr:hover td{background:#f8fafc}
       </div>
 
       <!-- Build -->
-      <div class="sb-section" style="border-bottom:none">
+      <div class="sb-section" style="border-bottom:none;gap:6px;display:flex;flex-direction:column">
         <button class="btn-build" id="build-btn" onclick="buildChart()">▶ Build Chart</button>
+        <div id="saved-configs-bar" style="display:none">
+          <div class="sb-label" style="margin-bottom:4px">Saved Configurations</div>
+          <div id="saved-configs-list" style="display:flex;flex-direction:column;gap:4px"></div>
+        </div>
+        <label for="config-file-input" class="btn-outline" style="text-align:center;cursor:pointer;font-size:12px;margin:0">
+          📂 Load Config
+        </label>
+        <input type="file" id="config-file-input" accept=".json" style="display:none" onchange="loadConfigFromFile(this)"/>
       </div>
     </aside>
 
@@ -429,6 +447,8 @@ tr:hover td{background:#f8fafc}
             <button class="btn-outline" onclick="downloadChart('png')">⬇ PNG</button>
             <button class="btn-outline" onclick="downloadChart('svg')">⬇ SVG</button>
             <button class="btn-outline" onclick="downloadHTML()">⬇ HTML</button>
+            <button class="btn-outline" onclick="exportConfig()">⬇ Config</button>
+            <button class="btn-outline" onclick="saveConfigToLocal()">💾 Save</button>
             <button class="btn-outline" id="btn-interpret" onclick="interpretChart()" style="display:none">✦ AI Interpret</button>
           </div>
           <div id="ai-interpretation" style="display:none"></div>
@@ -456,7 +476,7 @@ const S = {
   sid: null, sheets: [], sheet: null, cols: [], rows: 0,
   charts: [], chart: null, specs: null,
   colVals: {}, paramVals: {},
-  transforms: { filters: [], date_parts: [], derived_cols: [] },
+  transforms: { filters: [], top_n: [], date_parts: [], derived_cols: [] },
   tab: 'quickstart', theme: 'Light',
   themes: [], engines: [], engine: 'Smart (Statistical + Rule-Based)',
   suggestions: [],
@@ -561,6 +581,7 @@ async function initApp() {
 
   await loadSpecs(S.chart);
   renderDataTab();
+  renderSavedConfigs();
 }
 
 // ── Sheet change ───────────────────────────────────────────────────────────────
@@ -571,7 +592,7 @@ async function onSheetChange() {
   S.rows = data.rows;
   S.colVals = {};
   S.paramVals = {};
-  S.transforms = { filters: [], date_parts: [], derived_cols: [] };
+  S.transforms = { filters: [], top_n: [], date_parts: [], derived_cols: [] };
   resetChart();
   await loadSpecs(S.chart);
   renderDataTab();
@@ -734,7 +755,9 @@ function renderParamWidget(a) {
 // ── Transforms ─────────────────────────────────────────────────────────────────
 function renderTransformSection() {
   renderFiltersList();
+  renderTopNList();
   renderDatePartsList();
+  renderDerivedList();
 }
 
 function renderFiltersList() {
@@ -746,7 +769,7 @@ function renderFiltersList() {
     const opOpts = S.operators.map(op =>
       `<option value="${esc(op)}"${op===f.operator?' selected':''}>${esc(op)}</option>`
     ).join('');
-    const needVal = f.operator !== 'is blank';
+    const needVal = f.operator !== 'is blank' && f.operator !== 'is not blank';
     return `<div class="transform-row">
       <select class="sb-select" style="font-size:11px"
         onchange="S.transforms.filters[${i}].column=this.value">${colOpts}</select>
@@ -763,15 +786,75 @@ function renderFiltersList() {
 
 function updateFilterOp(i, val) {
   S.transforms.filters[i].operator = val;
-  if (val === 'is blank') S.transforms.filters[i].value = '';
+  if (val === 'is blank' || val === 'is not blank') S.transforms.filters[i].value = '';
   renderFiltersList();
 }
 function addFilter() {
-  if (S.transforms.filters.length >= 4) { toast('Maximum 4 filters'); return; }
+  if (S.transforms.filters.length >= 6) { toast('Maximum 6 filters'); return; }
   S.transforms.filters.push({ column: S.cols[0]?.name || '', operator: '=', value: '' });
   renderFiltersList();
 }
 function removeFilter(i) { S.transforms.filters.splice(i, 1); renderFiltersList(); }
+
+// ── Top-N renders ──────────────────────────────────────────────────────────────
+function renderTopNList() {
+  const el    = document.getElementById('topn-list');
+  const cats  = S.cols.filter(c => c.type === 'categorical');
+  const nums  = S.cols.filter(c => c.type === 'numeric');
+  if (!el) return;
+  el.innerHTML = (S.transforms.top_n || []).map((t, i) => {
+    const catOpts = S.cols.map(c =>
+      `<option value="${esc(c.name)}"${c.name===t.cat_column?' selected':''}>${esc(c.name)}</option>`).join('');
+    const numOpts = nums.map(c =>
+      `<option value="${esc(c.name)}"${c.name===t.num_column?' selected':''}>${esc(c.name)}</option>`).join('');
+    const aggOpts = ['sum','mean','max','count'].map(a =>
+      `<option value="${a}"${a===t.agg?' selected':''}>${a}</option>`).join('');
+    return `<div class="transform-row" style="flex-wrap:wrap;gap:4px">
+      <select class="sb-select" style="font-size:11px;flex:1" title="Categorical column"
+        onchange="S.transforms.top_n[${i}].cat_column=this.value">${catOpts}</select>
+      <select class="sb-select" style="font-size:11px;flex:1" title="Rank by"
+        onchange="S.transforms.top_n[${i}].num_column=this.value">${numOpts}</select>
+      <select class="sb-select" style="font-size:11px;width:52px"
+        onchange="S.transforms.top_n[${i}].agg=this.value">${aggOpts}</select>
+      <input class="sb-input" style="font-size:11px;width:40px" type="number" min="2" max="100"
+        value="${t.n}" title="N" onchange="S.transforms.top_n[${i}].n=+this.value"/>
+      <button class="btn-icon" onclick="removeTopN(${i})">✕</button>
+    </div>`;
+  }).join('');
+}
+function addTopN() {
+  if ((S.transforms.top_n||[]).length >= 2) { toast('Maximum 2 top-N rules'); return; }
+  const cats = S.cols.filter(c => c.type === 'categorical');
+  const nums = S.cols.filter(c => c.type === 'numeric');
+  if (!cats.length || !nums.length) { toast('Need at least one categorical and one numeric column'); return; }
+  if (!S.transforms.top_n) S.transforms.top_n = [];
+  S.transforms.top_n.push({ cat_column: cats[0].name, num_column: nums[0].name, n: 10, agg: 'sum' });
+  renderTopNList();
+}
+function removeTopN(i) { S.transforms.top_n.splice(i,1); renderTopNList(); }
+
+// ── Derived column renders ─────────────────────────────────────────────────────
+function renderDerivedList() {
+  const el = document.getElementById('derived-list');
+  if (!el) return;
+  el.innerHTML = S.transforms.derived_cols.map((d, i) =>
+    `<div class="transform-row" style="flex-direction:column;align-items:stretch;gap:4px">
+      <div style="display:flex;gap:4px">
+        <input class="sb-input" style="font-size:11px;flex:1" placeholder="Column name (no spaces)"
+          value="${esc(d.name)}" onchange="S.transforms.derived_cols[${i}].name=this.value"/>
+        <button class="btn-icon" onclick="removeDerived(${i})">✕</button>
+      </div>
+      <input class="sb-input" style="font-size:11px" placeholder="Expression e.g. Revenue / Cost"
+        value="${esc(d.expression)}" onchange="S.transforms.derived_cols[${i}].expression=this.value"/>
+    </div>`
+  ).join('');
+}
+function addDerived() {
+  if (S.transforms.derived_cols.length >= 4) { toast('Maximum 4 derived columns'); return; }
+  S.transforms.derived_cols.push({ name: '', expression: '' });
+  renderDerivedList();
+}
+function removeDerived(i) { S.transforms.derived_cols.splice(i,1); renderDerivedList(); }
 
 function renderDatePartsList() {
   const el = document.getElementById('dateparts-list');
@@ -897,10 +980,9 @@ function showChartResult(fig, warnings) {
     document.getElementById('btn-interpret').style.display = '';
   }
 
-  // setTimeout(0) fires after the current task AND after the browser has run
-  // style/layout (unlike requestAnimationFrame which fires before layout).
-  // This guarantees the tab is fully visible and the container has real dimensions.
-  setTimeout(() => _renderPlotly(fig), 0);
+  // Two rAF calls: first fires after style recalc, second after layout —
+  // guarantees the flex container has real pixel dimensions before Plotly measures it.
+  requestAnimationFrame(() => requestAnimationFrame(() => _renderPlotly(fig)));
 }
 
 async function interpretChart() {
@@ -1060,16 +1142,21 @@ async function applySuggestion(i) {
     if (sel && S.colVals[spec.role]) sel.value = S.colVals[spec.role];
   });
 
-  // Apply transforms
+  // Apply transforms — replace each category if the suggestion provides it
   if (s.transforms?.length) {
     const filters    = s.transforms.filter(t => t.type === 'filter');
+    const top_n      = s.transforms.filter(t => t.type === 'top_n');
     const date_parts = s.transforms.filter(t => t.type === 'date_part');
     const derived    = s.transforms.filter(t => t.type === 'derived');
-    if (filters.length)    S.transforms.filters    = filters.map(f => ({column:f.column,operator:f.operator,value:f.value}));
-    if (date_parts.length) S.transforms.date_parts = date_parts.map(d => ({source_column:d.source_column,part:d.part}));
-    if (derived.length)    S.transforms.derived_cols = derived.map(d => ({name:d.name,expression:d.expression}));
+    if (filters.length)
+      S.transforms.filters = filters.map(f => ({column:f.column, operator:f.operator, value:f.value||''}));
+    if (top_n.length)
+      S.transforms.top_n = top_n.map(t => ({cat_column:t.cat_column, num_column:t.num_column, n:t.n||10, agg:t.agg||'sum'}));
+    if (date_parts.length)
+      S.transforms.date_parts = date_parts.map(d => ({source_column:d.source_column, part:d.part}));
+    if (derived.length)
+      S.transforms.derived_cols = derived.map(d => ({name:d.name, expression:d.expression}));
     renderTransformSection();
-    // Open the transforms section
     document.getElementById('transforms-group').open = true;
   }
 
@@ -1162,6 +1249,116 @@ function downloadHTML() {
   a.href = URL.createObjectURL(new Blob([html], {type:'text/html'}));
   a.download = 'cerp_chart.html';
   a.click();
+}
+
+// ── Config export / save / load ───────────────────────────────────────────────
+const _CFG_LS_KEY = 'cerp_saved_configs';
+
+function _currentConfig(name) {
+  return {
+    name: name || ('Config ' + new Date().toLocaleString()),
+    saved_at: new Date().toISOString(),
+    chart_name: S.chart,
+    sheet_name: S.sheet,
+    columns:    S.colVals,
+    params:     S.paramVals,
+    transforms: S.transforms,
+    theme:      S.theme,
+  };
+}
+
+function _applyConfig(cfg) {
+  if (cfg.chart_name) S.chart = cfg.chart_name;
+  if (cfg.sheet_name) S.sheet = cfg.sheet_name;
+  if (cfg.columns)    S.colVals   = cfg.columns;
+  if (cfg.params)     S.paramVals = cfg.params;
+  if (cfg.transforms) {
+    S.transforms = {
+      filters:     cfg.transforms.filters     || [],
+      top_n:       cfg.transforms.top_n       || [],
+      date_parts:  cfg.transforms.date_parts  || [],
+      derived_cols:cfg.transforms.derived_cols || [],
+    };
+  }
+  if (cfg.theme) S.theme = cfg.theme;
+}
+
+function exportConfig() {
+  if (!S.chart) { toast('Build a chart first'); return; }
+  const cfg = _currentConfig();
+  const blob = new Blob([JSON.stringify(cfg, null, 2)], {type: 'application/json'});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = (cfg.name || 'cerp_config').replace(/[^a-z0-9_\-]/gi, '_') + '.json';
+  a.click();
+}
+
+function saveConfigToLocal() {
+  if (!S.chart) { toast('Build a chart first'); return; }
+  const name = prompt('Name for this configuration:', 'Config ' + new Date().toLocaleString());
+  if (!name) return;
+  const cfg = _currentConfig(name);
+  const all = JSON.parse(localStorage.getItem(_CFG_LS_KEY) || '[]');
+  const idx = all.findIndex(c => c.name === name);
+  if (idx >= 0) all[idx] = cfg; else all.unshift(cfg);
+  localStorage.setItem(_CFG_LS_KEY, JSON.stringify(all));
+  renderSavedConfigs();
+  toast('Configuration saved');
+}
+
+function loadConfigFromFile(input) {
+  const file = input.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = async e => {
+    try {
+      const cfg = JSON.parse(e.target.result);
+      _applyConfig(cfg);
+      // Reload column specs for the (possibly new) sheet
+      if (S.sid) {
+        const sbSheet = document.getElementById('sb-sheet');
+        if (sbSheet && S.sheet) sbSheet.value = S.sheet;
+        await loadSpecs(S.chart);
+      }
+      renderTransformSection();
+      toast('Config loaded — press Build Chart to render');
+    } catch (err) {
+      toast('Invalid config file: ' + err.message);
+    }
+    input.value = '';
+  };
+  reader.readAsText(file);
+}
+
+function loadSavedConfig(name) {
+  const all = JSON.parse(localStorage.getItem(_CFG_LS_KEY) || '[]');
+  const cfg = all.find(c => c.name === name);
+  if (!cfg) { toast('Config not found'); return; }
+  _applyConfig(cfg);
+  renderTransformSection();
+  toast('Config loaded — press Build Chart to render');
+}
+
+function deleteSavedConfig(name) {
+  const all = JSON.parse(localStorage.getItem(_CFG_LS_KEY) || '[]');
+  const filtered = all.filter(c => c.name !== name);
+  localStorage.setItem(_CFG_LS_KEY, JSON.stringify(filtered));
+  renderSavedConfigs();
+}
+
+function renderSavedConfigs() {
+  const all = JSON.parse(localStorage.getItem(_CFG_LS_KEY) || '[]');
+  const bar  = document.getElementById('saved-configs-bar');
+  const list = document.getElementById('saved-configs-list');
+  if (!bar || !list) return;
+  if (!all.length) { bar.style.display = 'none'; return; }
+  bar.style.display = 'block';
+  list.innerHTML = all.map(c => `
+    <div style="display:flex;align-items:center;gap:6px;padding:4px 6px;background:var(--surface);border:1px solid var(--border);border-radius:4px">
+      <span style="flex:1;font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(c.name)}">${esc(c.name)}</span>
+      <button class="btn-outline" style="font-size:10px;padding:2px 6px" onclick="loadSavedConfig(${JSON.stringify(c.name)})">Load</button>
+      <button class="btn-outline" style="font-size:10px;padding:2px 6px;color:#c0392b" onclick="deleteSavedConfig(${JSON.stringify(c.name)})">✕</button>
+    </div>`).join('');
 }
 
 // ── Tab switching ──────────────────────────────────────────────────────────────

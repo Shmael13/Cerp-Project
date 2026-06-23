@@ -177,85 +177,100 @@ def validate_and_complete(
 # ── Transform hint builders ───────────────────────────────────────────────────
 
 def suggest_date_parts(df: pd.DataFrame, col: str) -> list[dict]:
-    """Return date-part hints when col looks like a high-cardinality datetime."""
+    """Return the most relevant date-part hints for col based on its time granularity."""
     if col not in df.columns:
         return []
     try:
         parsed = pd.to_datetime(df[col], errors="coerce")
-        if parsed.notna().sum() < 3:
+        valid  = parsed.dropna()
+        if len(valid) < 3:
             return []
-        n_unique = parsed.dt.year.nunique() if hasattr(parsed.dt, "year") else 0
-        parts = []
-        if n_unique > 1:
+
+        n_years   = valid.dt.year.nunique()
+        n_months  = (valid.dt.year * 100 + valid.dt.month).nunique()
+        n_days    = valid.dt.date.nunique()
+        parts: list[dict] = []
+
+        # Year — only when data spans multiple years
+        if n_years > 1:
             parts.append({"type": "date_part", "source_column": col, "part": "Year",
-                          "label": f"Extract Year from {col}"})
-        parts.append({"type": "date_part", "source_column": col, "part": "Month",
-                      "label": f"Extract Month from {col}"})
-        parts.append({"type": "date_part", "source_column": col, "part": "Quarter",
-                      "label": f"Extract Quarter from {col}"})
+                          "label": f"Group by year  ({n_years} years)"})
+        # Quarter / Month — multi-month data
+        if n_months > 2:
+            parts.append({"type": "date_part", "source_column": col, "part": "Quarter",
+                          "label": f"Group by quarter"})
+            parts.append({"type": "date_part", "source_column": col, "part": "Month",
+                          "label": f"Group by month name"})
+        # Day of week — sub-weekly granularity or behavioural patterns
+        if n_days > 7:
+            parts.append({"type": "date_part", "source_column": col, "part": "Day of Week",
+                          "label": f"Group by day of week"})
+        # Hour — only for intra-day data
+        hour_spread = int(valid.dt.hour.nunique())
+        if hour_spread > 3:
+            parts.append({"type": "date_part", "source_column": col, "part": "Hour",
+                          "label": f"Group by hour of day"})
         return parts
     except Exception:
         return []
 
 
 def suggest_outlier_filter(df: pd.DataFrame, col: str, iqr_k: float = 1.5) -> list[dict]:
-    """Return a filter hint to remove extreme outliers from col."""
+    """Return filter hints to remove extreme outliers from a numeric column."""
     if col not in df.columns:
         return []
     try:
         s = pd.to_numeric(df[col], errors="coerce").dropna()
+        if len(s) < 10:
+            return []
         q1, q3 = s.quantile(0.25), s.quantile(0.75)
-        iqr = q3 - q1
-        outliers = ((s < q1 - iqr_k * iqr) | (s > q3 + iqr_k * iqr)).sum()
-        rate = outliers / len(s)
-        if rate > 0.04:   # >4% outliers — worth flagging
+        iqr     = q3 - q1
+        if iqr == 0:
+            return []
+        lo_mask  = s < q1 - iqr_k * iqr
+        hi_mask  = s > q3 + iqr_k * iqr
+        n_out    = int(lo_mask.sum() + hi_mask.sum())
+        rate     = n_out / len(s)
+        if rate < 0.04:
+            return []
+        hints: list[dict] = []
+        if lo_mask.any():
             lower = round(float(q1 - iqr_k * iqr), 2)
+            hints.append({"type": "filter", "column": col, "operator": "≥",
+                          "value": str(lower),
+                          "label": f"Remove low outliers in {col}  (< {lower:,.1f})"})
+        if hi_mask.any():
             upper = round(float(q3 + iqr_k * iqr), 2)
-            return [
-                {"type": "filter", "column": col, "operator": "≥", "value": str(lower),
-                 "label": f"Remove low outliers in {col} (below {lower:,.1f})"},
-                {"type": "filter", "column": col, "operator": "≤", "value": str(upper),
-                 "label": f"Remove high outliers in {col} (above {upper:,.1f})"},
-            ]
-        return []
+            hints.append({"type": "filter", "column": col, "operator": "≤",
+                          "value": str(upper),
+                          "label": f"Remove high outliers in {col}  (> {upper:,.1f})"})
+        return hints
     except Exception:
         return []
 
 
-def suggest_derived(name: str, expression: str, label: str) -> dict:
-    return {"type": "derived", "name": name, "expression": expression, "label": label}
-
-
-def suggest_top_n_filter(
-    df: pd.DataFrame, cat_col: str, num_col: str, n: int = 10
+def suggest_top_n(
+    df: pd.DataFrame, cat_col: str, num_col: str, n: int = 10, agg: str = "sum"
 ) -> list[dict]:
     """
-    When a categorical column has many distinct values, suggest keeping only the
-    top-N by sum of num_col.  Returns [] when cardinality is already manageable.
+    Suggest a TopN transform to reduce a high-cardinality categorical column to
+    the N most significant categories.  Uses the proper top_n transform type
+    (not a row filter) so every row for a top-N category is kept intact.
     """
     if cat_col not in df.columns or num_col not in df.columns:
         return []
     try:
-        n_cats = df[cat_col].nunique()
+        n_cats = int(df[cat_col].nunique())
         if n_cats <= n:
             return []
-        top = (
-            df.groupby(cat_col)[num_col]
-            .sum()
-            .nlargest(n)
-            .index
-            .tolist()
-        )
-        threshold = (
-            df.groupby(cat_col)[num_col].sum().nlargest(n).min()
-        )
         return [
             {
-                "type": "filter",
-                "column": num_col,
-                "operator": "≥",
-                "value": str(round(float(threshold), 2)),
-                "label": f"Keep top {n} {cat_col} by {num_col} ({n_cats} → {n} categories)",
+                "type":       "top_n",
+                "cat_column": cat_col,
+                "num_column": num_col,
+                "n":          n,
+                "agg":        agg,
+                "label":      f"Keep top {n} {cat_col} by {agg}({num_col})  ({n_cats} → {n})",
             }
         ]
     except Exception:
@@ -265,29 +280,27 @@ def suggest_top_n_filter(
 def suggest_ratio_derived(
     df: pd.DataFrame, numerator: str, denominator: str
 ) -> list[dict]:
-    """
-    Suggest a derived ratio column when both columns are numeric and the
-    denominator is never zero.  Returns [] when the ratio is not meaningful.
-    """
+    """Suggest a derived ratio column when meaningful and denominator is non-zero."""
     if numerator not in df.columns or denominator not in df.columns:
         return []
     try:
         denom = pd.to_numeric(df[denominator], errors="coerce")
-        if (denom == 0).any() or denom.isna().all():
+        numer = pd.to_numeric(df[numerator],   errors="coerce")
+        if (denom == 0).any() or denom.isna().all() or numer.isna().all():
             return []
-        numer = pd.to_numeric(df[numerator], errors="coerce")
         ratio_mean = float((numer / denom).mean())
-        # Only useful when the ratio is in a plausible 0–1 or 0–100 range
         if not (0 < abs(ratio_mean) < 200):
             return []
-        col_name   = f"{numerator}_per_{denominator}"
-        expression = f"{numerator} / {denominator}"
+        safe_num = numerator.replace(" ", "_").replace("/", "_per_")
+        safe_den = denominator.replace(" ", "_").replace("/", "_per_")
+        col_name   = f"{safe_num}_per_{safe_den}"
+        expression = f"`{numerator}` / `{denominator}`"
         return [
             {
-                "type": "derived",
-                "name": col_name,
+                "type":       "derived",
+                "name":       col_name,
                 "expression": expression,
-                "label": f"Compute {numerator} ÷ {denominator} ratio",
+                "label":      f"{numerator} ÷ {denominator}",
             }
         ]
     except Exception:
@@ -295,21 +308,25 @@ def suggest_ratio_derived(
 
 
 def suggest_null_filter(df: pd.DataFrame, col: str) -> list[dict]:
-    """Suggest filtering nulls when >5% of values are missing in key column."""
+    """Suggest filtering nulls when >5% of values are missing in a key column."""
     if col not in df.columns:
         return []
     try:
-        null_rate = df[col].isna().mean()
+        null_rate = float(df[col].isna().mean())
         if null_rate < 0.05:
             return []
         return [
             {
-                "type": "filter",
-                "column": col,
+                "type":     "filter",
+                "column":   col,
                 "operator": "is not blank",
-                "value": "",
-                "label": f"Remove {null_rate*100:.0f}% blank rows in {col}",
+                "value":    "",
+                "label":    f"Remove {null_rate*100:.0f}% blank rows in {col}",
             }
         ]
     except Exception:
         return []
+
+
+def suggest_derived(name: str, expression: str, label: str) -> dict:
+    return {"type": "derived", "name": name, "expression": expression, "label": label}

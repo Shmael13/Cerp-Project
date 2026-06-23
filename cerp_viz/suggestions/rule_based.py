@@ -17,7 +17,7 @@ from cerp_viz.suggestions._utils import (
     best_numeric, best_categorical, cardinality_score,
     has_mixed_sign, default_params, complete_columns, validate_and_complete,
     suggest_date_parts, suggest_outlier_filter, suggest_derived,
-    suggest_top_n_filter, suggest_ratio_derived, suggest_null_filter,
+    suggest_top_n, suggest_ratio_derived, suggest_null_filter,
 )
 
 KPI_HINTS    = __import__("re").compile(
@@ -36,11 +36,9 @@ def _bar(df: pd.DataFrame) -> SuggestionResult | None:
     n = df[cat].nunique()
     top_n = min(n, 10) if n > 10 else 0
     agg = "sum" if NUMERIC_HINTS.search(num) else "mean"
-    transforms = (
-        suggest_top_n_filter(df, cat, num, n=10)
-        + suggest_outlier_filter(df, num)
-        + suggest_null_filter(df, num)
-    )
+    # Bar chart has a built-in top_n param, so we don't add a separate top_n transform.
+    # Only suggest outlier/null cleanup that the chart param cannot handle.
+    transforms = suggest_outlier_filter(df, num) + suggest_null_filter(df, num)
     return SuggestionResult(
         chart_name="Bar Chart",
         columns=complete_columns("Bar Chart", x=cat, y=num, color=None),
@@ -91,7 +89,7 @@ def _scatter(df: pd.DataFrame) -> SuggestionResult | None:
     transforms = (
         suggest_outlier_filter(df, nums[0])
         + suggest_outlier_filter(df, nums[1])
-        + suggest_ratio_derived(df, nums[0], nums[1])
+        + suggest_ratio_derived(df, nums[1], nums[0])
         + suggest_null_filter(df, nums[0])
     )
     return SuggestionResult(
@@ -118,6 +116,11 @@ def _heatmap(df: pd.DataFrame) -> SuggestionResult | None:
     x_col, y_col = scored[0], scored[1]
     val_col = best_numeric(df)
     nx, ny = df[x_col].nunique(), df[y_col].nunique()
+    transforms = (
+        suggest_top_n(df, x_col, val_col, n=15)
+        + suggest_top_n(df, y_col, val_col, n=15)
+        + suggest_null_filter(df, val_col)
+    )
     return SuggestionResult(
         chart_name="Heatmap",
         columns=complete_columns("Heatmap", x=x_col, y=y_col, value=val_col),
@@ -126,6 +129,7 @@ def _heatmap(df: pd.DataFrame) -> SuggestionResult | None:
         rationale=(f"Cross-tabulates {val_col} across {nx} {x_col} and {ny} {y_col} values "
                    "— quickly spots high/low combinations."),
         score=0.50 + 0.35 * cardinality_score(nx) * cardinality_score(ny),
+        transforms=transforms,
     )
 
 
