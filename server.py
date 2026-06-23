@@ -184,6 +184,7 @@ class SuggestRequest(BaseModel):
     engine: str = "Smart (Statistical + Rule-Based)"
     transforms: dict[str, Any] = {}
     file_id: str | None = None
+    query: str = ""
 
 
 @app.post("/api/suggest")
@@ -198,7 +199,7 @@ async def suggest(req: SuggestRequest):
 
     compat    = compatible_visualizations(df)
     available = {n for n, r in compat.items() if r.compatible}
-    suggestions = eng.suggest(df)
+    suggestions = eng.suggest(df, query=req.query)
 
     return {"suggestions": [
         {

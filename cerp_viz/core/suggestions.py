@@ -30,6 +30,11 @@ class BaseSuggester(ABC):
     """
 
     @abstractmethod
-    def suggest(self, df: pd.DataFrame) -> list[SuggestionResult]:
-        """Analyse df and return ranked suggestions. Must not raise."""
+    def suggest(self, df: pd.DataFrame, query: str = "") -> list[SuggestionResult]:
+        """Analyse df and return ranked suggestions. Must not raise.
+
+        query — optional free-text instruction from the user, e.g.
+                 "best heatmaps" or "what drives revenue?"
+                 Engines may use this to focus or filter results.
+        """
         ...

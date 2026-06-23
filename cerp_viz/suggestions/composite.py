@@ -25,12 +25,12 @@ class CompositeSuggester(BaseSuggester):
     def __init__(self, suggesters: list[BaseSuggester]) -> None:
         self._suggesters = suggesters
 
-    def suggest(self, df: pd.DataFrame) -> list[SuggestionResult]:
+    def suggest(self, df: pd.DataFrame, query: str = "") -> list[SuggestionResult]:
         best: dict[str, SuggestionResult] = {}
 
         for suggester in self._suggesters:
             try:
-                for r in suggester.suggest(df):
+                for r in suggester.suggest(df, query=query):
                     v = validate_and_complete(r, df)
                     if v is None:
                         continue

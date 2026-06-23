@@ -19,7 +19,7 @@ from cerp_viz.suggestions._utils import (
     best_numeric, best_categorical, has_mixed_sign,
     ols_r2, pearson_r, default_params,
     complete_columns, validate_and_complete, STAGE_HINTS,
-    suggest_date_parts, suggest_outlier_filter,
+    suggest_date_parts, suggest_outlier_filter, filter_by_query,
 )
 
 
@@ -455,7 +455,7 @@ class StatisticalSuggester(BaseSuggester):
     Uses only numpy + pandas — no external API calls.
     """
 
-    def suggest(self, df: pd.DataFrame) -> list[SuggestionResult]:
+    def suggest(self, df: pd.DataFrame, query: str = "") -> list[SuggestionResult]:
         raw: list[SuggestionResult] = []
         for analysis in _ANALYSES:
             try:
@@ -473,7 +473,8 @@ class StatisticalSuggester(BaseSuggester):
             if r.chart_name not in best or r.score > best[r.chart_name].score:
                 best[r.chart_name] = r
 
-        return sorted(best.values(), key=lambda r: r.score, reverse=True)
+        results = sorted(best.values(), key=lambda r: r.score, reverse=True)
+        return filter_by_query(results, query)
 
 
 # ── Self-registration ─────────────────────────────────────────────────────────

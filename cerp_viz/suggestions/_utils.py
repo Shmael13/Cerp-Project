@@ -330,3 +330,97 @@ def suggest_null_filter(df: pd.DataFrame, col: str) -> list[dict]:
 
 def suggest_derived(name: str, expression: str, label: str) -> dict:
     return {"type": "derived", "name": name, "expression": expression, "label": label}
+
+
+# ── Query-based filtering for non-AI engines ──────────────────────────────────
+
+# Maps user-typed terms to registered chart names.
+_QUERY_CHART_ALIASES: dict[str, str] = {
+    "heatmap":              "Heatmap",
+    "heat map":             "Heatmap",
+    "heat":                 "Heatmap",
+    "scatter":              "Scatter Plot",
+    "scatter plot":         "Scatter Plot",
+    "bubble":               "Scatter Plot",
+    "bubble chart":         "Scatter Plot",
+    "bar":                  "Bar Chart",
+    "bar chart":            "Bar Chart",
+    "column chart":         "Bar Chart",
+    "line":                 "Line Chart",
+    "line chart":           "Line Chart",
+    "trend":                "Line Chart",
+    "pie":                  "Pie / Donut",
+    "donut":                "Pie / Donut",
+    "doughnut":             "Pie / Donut",
+    "radar":                "Radar Chart",
+    "spider":               "Radar Chart",
+    "radar chart":          "Radar Chart",
+    "spider chart":         "Radar Chart",
+    "bump":                 "Bump Chart",
+    "bump chart":           "Bump Chart",
+    "ranking":              "Bump Chart",
+    "rank":                 "Bump Chart",
+    "parallel":             "Parallel Coordinates",
+    "parallel coordinates": "Parallel Coordinates",
+    "parcoords":            "Parallel Coordinates",
+    "slope":                "Slope Chart",
+    "slope chart":          "Slope Chart",
+    "before after":         "Slope Chart",
+    "sunburst":             "Sunburst",
+    "sun burst":            "Sunburst",
+    "treemap":              "Treemap",
+    "tree map":             "Treemap",
+    "tree":                 "Treemap",
+    "funnel":               "Funnel Chart",
+    "funnel chart":         "Funnel Chart",
+    "waterfall":            "Waterfall",
+    "waterfall chart":      "Waterfall",
+    "area":                 "Area Chart",
+    "area chart":           "Area Chart",
+    "sankey":               "Sankey Diagram",
+    "sankey diagram":       "Sankey Diagram",
+    "flow":                 "Sankey Diagram",
+    "alluvial":             "Sankey Diagram",
+    "distribution":         "Distribution",
+    "histogram":            "Distribution",
+    "box plot":             "Distribution",
+    "boxplot":              "Distribution",
+    "violin":               "Distribution",
+    "tornado":              "Tornado Chart",
+    "butterfly":            "Tornado Chart",
+    "tornado chart":        "Tornado Chart",
+    "kpi":                  "KPI Tiles",
+    "kpi tiles":            "KPI Tiles",
+    "metrics":              "KPI Tiles",
+    "bullet":               "Bullet Chart",
+    "bullet chart":         "Bullet Chart",
+    "gauge":                "Bullet Chart",
+}
+
+
+def detect_chart_from_query(query: str) -> str | None:
+    """Return the registered chart name most mentioned in the query, or None."""
+    q = query.lower()
+    # Prefer longer matches (more specific) over shorter ones
+    for alias in sorted(_QUERY_CHART_ALIASES, key=len, reverse=True):
+        if alias in q:
+            return _QUERY_CHART_ALIASES[alias]
+    return None
+
+
+def filter_by_query(
+    results: list,   # list[SuggestionResult]
+    query: str,
+) -> list:
+    """
+    If query specifies a chart type, keep only suggestions of that type.
+    If nothing matches, return the original list unchanged so the user
+    still gets *some* suggestions.
+    """
+    if not query.strip():
+        return results
+    target = detect_chart_from_query(query)
+    if target is None:
+        return results
+    filtered = [r for r in results if r.chart_name == target]
+    return filtered if filtered else results

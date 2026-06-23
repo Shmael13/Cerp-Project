@@ -18,6 +18,7 @@ from cerp_viz.suggestions._utils import (
     has_mixed_sign, default_params, complete_columns, validate_and_complete,
     suggest_date_parts, suggest_outlier_filter, suggest_derived,
     suggest_top_n, suggest_ratio_derived, suggest_null_filter,
+    filter_by_query,
 )
 
 KPI_HINTS    = __import__("re").compile(
@@ -364,7 +365,7 @@ class RuleBasedSuggester(BaseSuggester):
     Reliable baseline, always produces results with no external calls.
     """
 
-    def suggest(self, df: pd.DataFrame) -> list[SuggestionResult]:
+    def suggest(self, df: pd.DataFrame, query: str = "") -> list[SuggestionResult]:
         raw: list[SuggestionResult] = []
         for builder in _BUILDERS:
             try:
@@ -382,7 +383,8 @@ class RuleBasedSuggester(BaseSuggester):
             if r.chart_name not in best or r.score > best[r.chart_name].score:
                 best[r.chart_name] = r
 
-        return sorted(best.values(), key=lambda r: r.score, reverse=True)
+        results = sorted(best.values(), key=lambda r: r.score, reverse=True)
+        return filter_by_query(results, query)
 
 
 # ── Self-registration ─────────────────────────────────────────────────────────

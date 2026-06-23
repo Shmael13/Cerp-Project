@@ -194,10 +194,18 @@ header{
 .btn-outline:hover{border-color:var(--accent);color:var(--accent)}
 
 /* ── Suggestion cards ─────────────────────────────────────────────────────── */
-.qs-header{display:flex;align-items:center;gap:12px;margin-bottom:20px;flex-wrap:wrap}
+.qs-header{display:flex;align-items:center;gap:12px;margin-bottom:12px;flex-wrap:wrap}
 .qs-header h2{font-size:18px;font-weight:700;flex:1}
 .qs-engine-wrap{display:flex;align-items:center;gap:8px}
 .qs-engine-wrap label{font-size:12px;color:var(--muted);white-space:nowrap}
+.qs-query-wrap{display:flex;gap:8px;margin-bottom:16px;align-items:center}
+.qs-query-input{
+  flex:1;padding:8px 12px;border:1.5px solid var(--border);border-radius:var(--r-sm);
+  font-size:13px;background:var(--surface);outline:none;transition:border-color .15s;
+  color:var(--text)}
+.qs-query-input:focus{border-color:var(--accent)}
+.qs-query-input::placeholder{color:var(--muted)}
+.qs-ai-note{font-size:11px;color:var(--muted);white-space:nowrap}
 .main-select{
   background:var(--surface);border:1px solid var(--border);border-radius:var(--r-sm);
   padding:6px 10px;font-size:13px;outline:none;cursor:pointer}
@@ -447,14 +455,22 @@ tr:hover td{background:#f8fafc}
           <h2>Quick Start</h2>
           <div class="qs-engine-wrap">
             <label>Engine</label>
-            <select class="main-select" id="qs-engine" onchange="S.engine=this.value"></select>
+            <select class="main-select" id="qs-engine" onchange="onEngineChange(this.value)"></select>
           </div>
-          <button class="btn-primary" onclick="loadSuggestions()">🔍 Analyse</button>
+          <button class="btn-primary" id="qs-analyse-btn" onclick="loadSuggestions()">🔍 Analyse</button>
+        </div>
+        <div class="qs-query-wrap">
+          <input type="text" id="qs-query" class="qs-query-input"
+            placeholder="Ask the AI… e.g. &quot;best heatmaps&quot;, &quot;what drives sales?&quot;, &quot;show trends over time&quot;"
+            oninput="onQueryInput()"
+            onkeydown="if(event.key==='Enter') loadSuggestions()"/>
+          <span class="qs-ai-note" id="qs-ai-note"></span>
         </div>
         <div id="qs-content">
           <div class="empty-state">
             <div class="empty-icon">💡</div>
-            <p>Click <b>Analyse</b> to let the engine inspect your data and recommend the best charts.</p>
+            <p>Click <b>Analyse</b> to let the engine inspect your data and recommend the best charts,<br>
+            or type a question above and press Enter.</p>
           </div>
         </div>
       </div>
@@ -598,6 +614,7 @@ async function initApp() {
   qsEng.innerHTML = S.engines.map(e =>
     `<option value="${esc(e)}"${e === S.engine ? ' selected' : ''}>${esc(e)}</option>`
   ).join('');
+  _updateQueryUI();  // set initial note state
 
   // Theme picker
   const sbTheme = document.getElementById('sb-theme');
@@ -1231,31 +1248,76 @@ function resetChart() {
 }
 
 // ── Suggestions ────────────────────────────────────────────────────────────────
+const _AI_ENGINES = new Set(['AI (Groq)', 'AI (Claude)']);
+
+function _isAiEngine() { return _AI_ENGINES.has(S.engine); }
+
+function onEngineChange(val) {
+  S.engine = val;
+  _updateQueryUI();
+}
+
+function onQueryInput() {
+  const q = document.getElementById('qs-query')?.value.trim() || '';
+  const btn = document.getElementById('qs-analyse-btn');
+  if (btn) btn.textContent = (q && _isAiEngine()) ? '✦ Ask AI' : '🔍 Analyse';
+  _updateQueryUI();
+}
+
+function _updateQueryUI() {
+  const note = document.getElementById('qs-ai-note');
+  const inp  = document.getElementById('qs-query');
+  const q    = inp?.value.trim() || '';
+  if (!note) return;
+  if (!q) {
+    note.textContent = '';
+  } else if (!_isAiEngine()) {
+    note.textContent = 'Query filters apply. For AI-generated answers, select AI (Groq) engine.';
+    note.style.color = 'var(--muted)';
+  } else {
+    note.textContent = '↵ Enter to search';
+    note.style.color = 'var(--accent)';
+  }
+}
+
 async function loadSuggestions() {
   S.engine = document.getElementById('qs-engine').value;
+  const query   = document.getElementById('qs-query')?.value.trim() || '';
   const content = document.getElementById('qs-content');
-  content.innerHTML = `<div class="empty-state"><div class="spinner"></div><p>Analysing data…</p></div>`;
+  const loadMsg = query
+    ? `<div class="empty-state"><div class="spinner"></div><p>Asking AI: <em>${esc(query)}</em>…</p></div>`
+    : `<div class="empty-state"><div class="spinner"></div><p>Analysing data…</p></div>`;
+  content.innerHTML = loadMsg;
 
   try {
     const data = await POST('/api/suggest', {
       session_id: S.sid, sheet_name: S.sheet,
       engine: S.engine, transforms: S.transforms,
+      query,
     });
     S.suggestions = data.suggestions;
-    renderSuggestions(data.suggestions);
+    renderSuggestions(data.suggestions, query);
   } catch (e) {
     content.innerHTML = `<div class="empty-state"><p style="color:var(--danger)">⚠ ${esc(e.message)}</p></div>`;
   }
 }
 
-function renderSuggestions(suggestions) {
+function renderSuggestions(suggestions, query = '') {
   const content = document.getElementById('qs-content');
   const valid = suggestions.filter(s => s.available);
   if (!valid.length) {
-    content.innerHTML = `<div class="empty-state"><div class="empty-icon">🔍</div>
-      <p>No suggestions found. Try a different engine or upload a richer file.</p></div>`;
+    const hint = query
+      ? `No results for <em>${esc(query)}</em>. Try rephrasing, or switch to AI (Groq) engine for free-text queries.`
+      : 'No suggestions found. Try a different engine or upload a richer file.';
+    content.innerHTML = `<div class="empty-state"><div class="empty-icon">🔍</div><p>${hint}</p></div>`;
     return;
   }
+  const queryBanner = query
+    ? `<p style="font-size:12px;color:var(--muted);margin-bottom:12px">
+        Showing ${valid.length} result${valid.length>1?'s':''} for <b>${esc(query)}</b>
+        <button class="btn-icon" style="font-size:11px;padding:2px 8px;margin-left:8px"
+          onclick="document.getElementById('qs-query').value='';onQueryInput();loadSuggestions()">✕ Clear</button>
+       </p>` : '';
 
   const cards = valid.map((s, i) => {
     const score = Math.round(s.score * 100);
@@ -1289,7 +1351,7 @@ function renderSuggestions(suggestions) {
     </div>`;
   }).join('');
 
-  content.innerHTML = `<div class="cards-grid">${cards}</div>`;
+  content.innerHTML = queryBanner + `<div class="cards-grid">${cards}</div>`;
 }
 
 async function applySuggestion(i) {

@@ -308,13 +308,62 @@ def _available_charts() -> str:
     return "\n".join(lines)
 
 
+# ── Chart-type detection for query ────────────────────────────────────────────
+
+from cerp_viz.suggestions._utils import detect_chart_from_query  # noqa: E402
+
+
+def _task_section(df: pd.DataFrame, query: str) -> str:
+    """Build the TASK section of the prompt, adapting to the user's query."""
+    chart_target = detect_chart_from_query(query) if query else None
+
+    formula_rules = """\
+CRITICAL FORMULA RULES — you must follow these exactly:
+1. col_expr: write the EXACT ready-to-run expression using real numbers from FORMULA HINTS \
+   (e.g. clip(x, 0, 847.5) not clip(x, lo, hi); x / 1000000 not x / scale).
+2. derived: complete pandas eval with column names in backticks (`Revenue` / `Cost` * 100). \
+   Use actual DataFrame column names.
+3. No placeholder text like '<value>', 'threshold', 'scale', or 'N' — only real numbers.
+4. For log transforms, check FORMULA HINTS to decide log(x) vs log(x+1) based on zeros."""
+
+    if not query:
+        return f"""\
+Suggest {_MAX_SUGGESTIONS} visualizations. Aim for variety — use different chart types and \
+explore different analytical angles (distribution, trend, ranking, correlation, composition, comparison).
+
+{formula_rules}"""
+
+    if chart_target:
+        # User asked for a specific chart type — give N variations of it
+        return f"""\
+USER REQUEST: "{query}"
+
+The user specifically wants {chart_target} charts. Generate {_MAX_SUGGESTIONS} DIFFERENT \
+{chart_target} configurations — vary the column choices, aggregations, and transforms so each \
+card reveals a genuinely distinct insight. Avoid repeating the same columns.
+
+If the data doesn't support {_MAX_SUGGESTIONS} truly distinct {chart_target} charts, fill \
+remaining slots with the most closely related chart types.
+
+{formula_rules}"""
+
+    # General analytical question
+    return f"""\
+USER REQUEST: "{query}"
+
+Answer the user's question with {_MAX_SUGGESTIONS} visualizations that directly address it. \
+Choose whatever chart types best reveal the answer. Each chart should show a different angle \
+on the same question.
+
+{formula_rules}"""
+
+
 # ── Prompt ────────────────────────────────────────────────────────────────────
 
-def _build_prompt(df: pd.DataFrame) -> str:
+def _build_prompt(df: pd.DataFrame, query: str = "") -> str:
     return f"""You are a world-class data analyst. A business user uploaded a spreadsheet. \
-Your job is to suggest the {_MAX_SUGGESTIONS} most insightful, distinct, and immediately \
-actionable visualizations, complete with any data transforms needed to make each chart \
-as clear as possible.
+Your job is to suggest insightful, distinct, and immediately actionable visualizations, \
+complete with any data transforms needed to make each chart as clear as possible.
 
 ══════════════════════════════════════════════════════════════
 DATAFRAME DESCRIPTION
@@ -334,17 +383,7 @@ AVAILABLE CHART TYPES
 ══════════════════════════════════════════════════════════════
 TASK
 ══════════════════════════════════════════════════════════════
-Suggest {_MAX_SUGGESTIONS} visualizations. Aim for variety — use different chart types, \
-explore different questions (distribution, trend, ranking, correlation, composition, comparison).
-
-CRITICAL FORMULA RULES — you must follow these exactly:
-1. col_expr transforms: write the EXACT ready-to-run expression using real numbers from the \
-   FORMULA HINTS section (e.g. clip(x, 0, 847.5) not clip(x, lo, hi); x / 1000000 not x / scale).
-2. derived transforms: write the complete pandas eval expression with column names in backticks \
-   (e.g. `Revenue` / `Cost` * 100). Use actual column names from the DataFrame.
-3. Do not use placeholder text like '<value>', 'threshold', 'scale', or 'N' — only real numbers.
-4. If a column needs a log transform, check whether it has zeros (from FORMULA HINTS) and \
-   use log(x) vs log(x+1) accordingly.
+{_task_section(df, query)}
 
 RESPOND WITH ONLY a valid JSON array (no markdown, no explanation, no text outside the array):
 [
@@ -427,11 +466,11 @@ RESPOND WITH ONLY a valid JSON array (no markdown, no explanation, no text outsi
 
 Additional rules:
 - chart_name must exactly match one of the names in AVAILABLE CHART TYPES.
-- All column names in columns{{}}, and any column referenced in transforms, must exist verbatim in the DataFrame.
+- All column names in columns{{}} and in any transform must exist verbatim in the DataFrame.
 - Only include transforms that genuinely improve the chart. Empty transforms array is fine.
-- Score each suggestion for how insightful it is given THIS specific dataset, not generically.
+- Score each suggestion 0.0–1.0 for how insightful it is given THIS specific dataset.
 - Sort the array by descending score.
-- Suggest {_MAX_SUGGESTIONS} distinct charts covering different analytical angles."""
+- Return exactly {_MAX_SUGGESTIONS} suggestions (fewer only if the data genuinely cannot support more)."""
 
 
 # ── Response parser ────────────────────────────────────────────────────────────
@@ -513,11 +552,11 @@ def _parse_response(raw: str, df: pd.DataFrame) -> list[SuggestionResult]:
 class GroqSuggester(BaseSuggester):
     """Calls Groq to generate chart suggestions. Returns [] on any error."""
 
-    def suggest(self, df: pd.DataFrame) -> list[SuggestionResult]:
+    def suggest(self, df: pd.DataFrame, query: str = "") -> list[SuggestionResult]:
         if not is_available():
             return []
         try:
-            raw = chat(_build_prompt(df), max_tokens=4000)
+            raw = chat(_build_prompt(df, query=query), max_tokens=4000)
             return sorted(_parse_response(raw, df), key=lambda r: r.score, reverse=True)
         except Exception:
             return []
