@@ -308,6 +308,67 @@ def _available_charts() -> str:
     return "\n".join(lines)
 
 
+_CHART_SELECTION_GUIDE = """\
+CHART SELECTION GUIDE — use this to pick the RIGHT chart from similar options:
+
+SCATTER family (2 numeric columns):
+  • Scatter Plot        — general correlation exploration, <5 k rows, want trendline/R²
+  • Marginal Scatter    — use when you ALSO want to see each variable's distribution shape
+                          on the margins (histogram/violin/box on X and Y axes simultaneously).
+                          Best choice when skewness or bimodality may explain the relationship.
+  • Density Heatmap     — use when rows > 1 000 and scatter would overplot; reveals WHERE
+                          the mass of data lies rather than individual points.
+  • Scatter Matrix      — use when there are 4+ numeric columns and you want ALL pairwise
+                          views at once (SPLOM). Scale back max_cols if > 8 columns.
+
+DISTRIBUTION family (1 numeric + optional category):
+  • Distribution        — simple histogram; best for a single column with no grouping.
+  • Box Plot            — compare medians, IQR, outliers across groups; n per group can be small.
+  • Violin Plot         — use over Box Plot when skewness, bimodality, or heavy tails exist
+                          (skew > 1.0 in the data description is a strong signal).
+  • Strip Plot          — show ALL individual points; only useful when total rows < 1 000
+                          (beyond that points overlap and Violin/Box is cleaner).
+
+FLOW family (source + target columns):
+  • Sankey Diagram      — directed one-way flows where nodes appear at different "levels".
+  • Chord Diagram       — bidirectional flows where the SAME entities appear on both sides
+                          (e.g. trade between countries, migration between cities).
+  • Network Graph       — many-to-many relationships without a clear flow direction;
+                          use when entities form a graph, not a ranked hierarchy.
+
+TEMPORAL family (date column required):
+  • Line Chart          — standard time-series; good for 1–5 series.
+  • Area Chart          — time-series when volume/magnitude matters as much as trend.
+  • Calendar Heatmap    — daily granularity data; reveals weekday/weekend patterns.
+  • Forecast            — when data has a detectable trend (R² > 0.2) and forward projection adds value.
+
+MULTI-NUMERIC correlation:
+  • Correlation Matrix  — overview of ALL pairwise correlations as a colour heatmap; pick
+                          when you want a quick "which columns are related" answer.
+  • Scatter Matrix      — detail-level exploration of the same; prefer when confirming
+                          or disproving specific pair relationships matters more than overview.
+
+RANKING / COMPARISON:
+  • Bar Chart           — absolute values per category; standard choice.
+  • Waterfall           — use when values have MIXED signs (positive + negative contributions).
+  • Tornado Chart       — sensitivity analysis; use when different factors push in opposite directions.
+  • Bump Chart          — rank changes over time (requires date + category + value).
+
+PART-OF-WHOLE:
+  • Pie / Donut         — ≤ 8 categories, shares sum to 100%.
+  • Treemap             — hierarchical part-of-whole with 2+ categorical levels.
+  • Sunburst            — same as Treemap but in a radial layout; better when depth > 2 levels.
+
+Use these rules to AVOID common mistakes:
+- Never suggest Strip Plot for > 1 000 rows.
+- Never suggest Marginal Scatter without at least 2 numeric columns.
+- Never suggest Chord Diagram when source and target values have NO overlap (use Sankey instead).
+- Never suggest Forecast unless there is a datetime column.
+- Prefer Violin over Box Plot when the numeric column description mentions skew > 1.5 or kurt > 3.
+- Prefer Marginal Scatter over plain Scatter when you want to highlight distributional asymmetry.\
+"""
+
+
 # ── Chart-type detection for query ────────────────────────────────────────────
 
 from cerp_viz.suggestions._utils import detect_chart_from_query  # noqa: E402
@@ -379,6 +440,10 @@ FORMULA HINTS  (data-driven — use these to write EXACT expressions)
 AVAILABLE CHART TYPES
 ══════════════════════════════════════════════════════════════
 {_available_charts()}
+
+══════════════════════════════════════════════════════════════
+{_CHART_SELECTION_GUIDE}
+══════════════════════════════════════════════════════════════
 
 ══════════════════════════════════════════════════════════════
 TASK

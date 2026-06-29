@@ -75,6 +75,45 @@ def _available_charts() -> str:
     return "\n".join(lines)
 
 
+_CHART_SELECTION_GUIDE = """\
+CHART SELECTION GUIDE — use this to pick the RIGHT chart from similar options:
+
+SCATTER family (2 numeric columns):
+  • Scatter Plot       — general correlation; < 5 k rows, want trendline/R²
+  • Marginal Scatter   — use when you ALSO want each variable's distribution on the margins
+                         (histogram/violin/box on X and Y axes simultaneously). Best when
+                         skewness or bimodality may explain the relationship.
+  • Density Heatmap    — rows > 1 000 and scatter overplots; shows WHERE data mass lies.
+  • Scatter Matrix     — 4+ numeric columns, want ALL pairwise views at once (SPLOM).
+
+DISTRIBUTION family (1 numeric + optional category):
+  • Distribution       — simple histogram; single column, no grouping.
+  • Box Plot           — medians, IQR, outliers across groups; n per group can be small.
+  • Violin Plot        — use over Box Plot when skew > 1.0 or bimodality is suspected.
+  • Strip Plot         — show ALL individual points; only when total rows < 1 000.
+
+FLOW family:
+  • Sankey Diagram     — directed one-way flow between hierarchical levels.
+  • Chord Diagram      — bidirectional flows where the SAME entities appear on both sides.
+  • Network Graph      — many-to-many relationships without a clear flow direction.
+
+TEMPORAL (date column required):
+  • Line Chart         — standard time-series.
+  • Calendar Heatmap   — daily granularity; reveals weekday/weekend cycles.
+  • Forecast           — when trend R² > 0.2 and forward projection adds value.
+
+MULTI-NUMERIC:
+  • Correlation Matrix — quick overview of ALL pairwise correlations.
+  • Scatter Matrix     — detailed pairwise scatter; prefer when confirming specific pairs.
+
+COMMON MISTAKES TO AVOID:
+- Never suggest Strip Plot for > 1 000 rows.
+- Never suggest Chord Diagram when source and target share NO common values (use Sankey).
+- Never suggest Forecast without a datetime column.
+- Prefer Marginal Scatter over Scatter Plot when skewness or distribution shape matters.\
+"""
+
+
 def _build_prompt(df: pd.DataFrame) -> str:
     return f"""You are a senior data analyst advising a business user who has just uploaded a spreadsheet.
 
@@ -84,9 +123,12 @@ DATAFRAME DESCRIPTION:
 AVAILABLE CHART TYPES:
 {_available_charts()}
 
+{_CHART_SELECTION_GUIDE}
+
 TASK:
 Suggest the {_MAX_SUGGESTIONS} most insightful visualizations for this data.
 Choose chart types that reveal genuinely interesting patterns — trends, comparisons, flows, distributions, or outliers.
+Consult the CHART SELECTION GUIDE above before choosing between similar chart types.
 Only suggest a chart if its required columns can be filled from the columns listed above.
 
 RESPOND WITH ONLY a JSON array (no markdown, no prose before or after):
