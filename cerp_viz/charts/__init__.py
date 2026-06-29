@@ -8,6 +8,8 @@ from cerp_viz.charts import network
 from cerp_viz.charts import chord
 from cerp_viz.charts import correlation
 from cerp_viz.charts import scatter_matrix
+from cerp_viz.charts import strip_plot
+from cerp_viz.charts import density_heatmap
 
 __all__ = [
     "bar", "line", "waterfall", "heatmap", "scatter", "sankey",
@@ -20,4 +22,6 @@ __all__ = [
     "chord",
     "correlation",
     "scatter_matrix",
+    "strip_plot",
+    "density_heatmap",
 ]

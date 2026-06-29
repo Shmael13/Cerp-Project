@@ -20,7 +20,7 @@ def render_welcome() -> None:
     st.markdown("## 👋 Welcome to CERP Visualizer")
     st.markdown(
         "Upload an **Excel** (.xlsx / .xls / .xlsm) or **CSV** file using the sidebar "
-        "to instantly explore your data with **25+ chart types**, AI-powered suggestions, "
+        "to instantly explore your data with **29 chart types**, AI-powered suggestions, "
         "scenario comparison, What-If simulation, and forecasting."
     )
 

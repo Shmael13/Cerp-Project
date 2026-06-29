@@ -18,7 +18,8 @@ from cerp_viz.suggestions._utils import (
     numeric_cols, categorical_cols, datetime_cols,
     best_numeric, best_categorical, has_mixed_sign,
     ols_r2, pearson_r, default_params,
-    complete_columns, validate_and_complete, STAGE_HINTS,
+    complete_columns, validate_and_complete,
+    STAGE_HINTS, FLOW_SRC_HINTS, FLOW_TGT_HINTS,
     suggest_date_parts, suggest_outlier_filter, filter_by_query,
 )
 
@@ -433,16 +434,355 @@ def _sensitivity_tornado(df: pd.DataFrame) -> SuggestionResult | None:
     )
 
 
+# ── N+1. Trend detection → Forecast ──────────────────────────────────────────
+
+def _forecast_trend(df: pd.DataFrame) -> SuggestionResult | None:
+    dt = datetime_cols(df)
+    nums = numeric_cols(df)
+    if not dt or not nums:
+        return None
+
+    date_col = dt[0]
+    best_num, best_r2 = None, -1.0
+    for num in nums:
+        col = df[num].dropna()
+        if len(col) < 5:
+            continue
+        r2 = ols_r2(np.arange(len(col)), col.values)
+        if r2 > best_r2:
+            best_r2, best_num = r2, num
+
+    if best_num is None or best_r2 < 0.15:
+        return None
+
+    score = min(0.92, 0.55 + 0.45 * best_r2)
+    return SuggestionResult(
+        chart_name="Forecast",
+        columns=complete_columns("Forecast", date=date_col, value=best_num),
+        params={**default_params("Forecast")},
+        title=f"{best_num} forecast  (trend R²={best_r2:.2f})",
+        rationale=(
+            f"Detectable trend in {best_num} (R²={best_r2:.2f}) across {len(df)} periods. "
+            f"Forecast projects values forward with polynomial fit and confidence intervals."
+        ),
+        score=score,
+        transforms=suggest_date_parts(df, date_col),
+    )
+
+
+# ── N+2. Inter-group variance → Box Plot ──────────────────────────────────────
+
+def _box_by_category(df: pd.DataFrame) -> SuggestionResult | None:
+    cats = categorical_cols(df)
+    nums = numeric_cols(df)
+    if not cats or not nums:
+        return None
+
+    best_cat, best_num, best_cv = None, None, 0.0
+    for cat in cats:
+        n = df[cat].nunique()
+        if n < 2 or n > 20:
+            continue
+        for num in nums:
+            try:
+                means = df.groupby(cat)[num].mean().dropna()
+                if len(means) < 2:
+                    continue
+                cv = float(means.std() / (abs(means.mean()) + 1e-9))
+                if cv > best_cv:
+                    best_cv, best_cat, best_num = cv, cat, num
+            except Exception:
+                pass
+
+    if best_cat is None or best_cv < 0.2:
+        return None
+
+    n = df[best_cat].nunique()
+    return SuggestionResult(
+        chart_name="Box Plot",
+        columns=complete_columns("Box Plot", x=best_cat, y=best_num, color=None),
+        params={**default_params("Box Plot")},
+        title=f"{best_num} spread by {best_cat}  (group CV={best_cv:.2f})",
+        rationale=(
+            f"High variance across {n} {best_cat} groups (CV={best_cv:.2f}). "
+            f"Box plot shows medians, IQR, and outliers per group — reveals which groups are most spread."
+        ),
+        score=min(0.88, 0.55 + 0.40 * min(best_cv, 0.8)),
+    )
+
+
+# ── N+3. High skewness with categories → Violin ───────────────────────────────
+
+def _violin_skew(df: pd.DataFrame) -> SuggestionResult | None:
+    nums = numeric_cols(df)
+    if not nums:
+        return None
+
+    best_num, best_skew = None, 0.0
+    for num in nums:
+        col = df[num].dropna()
+        if len(col) < 10:
+            continue
+        try:
+            skew = abs(float(col.skew()))
+            if skew > best_skew:
+                best_skew, best_num = skew, num
+        except Exception:
+            pass
+
+    if best_num is None or best_skew < 1.0:
+        return None
+
+    cats = categorical_cols(df)
+    if not cats:
+        return None
+    cat = min(cats, key=lambda c: abs(df[c].nunique() - 5))
+    n = df[cat].nunique()
+    if n < 2 or n > 15 or (len(df) / n) < 5:
+        return None
+
+    return SuggestionResult(
+        chart_name="Violin Plot",
+        columns=complete_columns("Violin Plot", x=cat, y=best_num, color=None),
+        params={**default_params("Violin Plot"), "show_box": True, "show_points": "outliers"},
+        title=f"Shape of {best_num} by {cat}  (skew={best_skew:.1f})",
+        rationale=(
+            f"{best_num} is strongly skewed (|skew|={best_skew:.1f}) — violin reveals full "
+            f"density shape per {cat} group, exposing asymmetry and heavy tails that box plots compress."
+        ),
+        score=min(0.87, 0.58 + 0.18 * min(best_skew, 2.5)),
+        transforms=suggest_outlier_filter(df, best_num),
+    )
+
+
+# ── N+4. Moderate rows per group → Strip Plot ────────────────────────────────
+
+def _strip_dense(df: pd.DataFrame) -> SuggestionResult | None:
+    n_rows = len(df)
+    if n_rows < 10 or n_rows > 1000:
+        return None
+
+    cats = categorical_cols(df)
+    nums = numeric_cols(df)
+    if not cats or not nums:
+        return None
+
+    cat = min(cats, key=lambda c: abs(df[c].nunique() - 5))
+    num = best_numeric(df)
+    n = df[cat].nunique()
+    if n < 2 or n > 20:
+        return None
+
+    rpc = n_rows / n
+    if rpc < 5 or rpc > 150:
+        return None
+
+    return SuggestionResult(
+        chart_name="Strip Plot",
+        columns=complete_columns("Strip Plot", x=cat, y=num, color=None),
+        params={**default_params("Strip Plot"), "jitter": 0.3, "show_box": True},
+        title=f"All {num} points by {cat}",
+        rationale=(
+            f"~{int(rpc)} rows per {cat} group — strip plot shows every individual "
+            f"{num} value with jitter, making outliers and clusters visible without aggregation."
+        ),
+        score=min(0.80, 0.52 + 0.35 * min(rpc / 50, 1.0)),
+    )
+
+
+# ── N+5. Many mutually correlated columns → Correlation Matrix ───────────────
+
+def _correlation_matrix_multi(df: pd.DataFrame) -> SuggestionResult | None:
+    nums = numeric_cols(df)
+    if len(nums) < 3:
+        return None
+
+    pairs: list[float] = []
+    for i in range(len(nums)):
+        for j in range(i + 1, len(nums)):
+            r = pearson_r(df, nums[i], nums[j])
+            if np.isfinite(r):
+                pairs.append(abs(r))
+
+    if not pairs:
+        return None
+
+    avg_corr = float(np.mean(pairs))
+    method = "pearson" if avg_corr >= 0.4 else "spearman"
+
+    return SuggestionResult(
+        chart_name="Correlation Matrix",
+        columns=complete_columns("Correlation Matrix", _a=nums[0], _b=nums[1]),
+        params={**default_params("Correlation Matrix"), "method": method},
+        title=f"Correlation matrix — {len(nums)} variables  (avg |r|={avg_corr:.2f})",
+        rationale=(
+            f"{len(nums)} numeric columns with average |r|={avg_corr:.2f}. "
+            f"Correlation matrix reveals collinear pairs, independent features, and hidden structure."
+        ),
+        score=min(0.90, 0.52 + 0.55 * avg_corr + 0.08 * min(len(nums) - 3, 5)),
+    )
+
+
+# ── N+6. 4+ numeric columns → Scatter Matrix (SPLOM) ─────────────────────────
+
+def _scatter_matrix_splom(df: pd.DataFrame) -> SuggestionResult | None:
+    nums = numeric_cols(df)
+    if len(nums) < 4:
+        return None
+
+    n_rows = len(df)
+    cats = categorical_cols(df)
+    sample_n = min(1000, n_rows) if n_rows > 500 else 0
+
+    return SuggestionResult(
+        chart_name="Scatter Matrix",
+        columns=complete_columns("Scatter Matrix", _a=nums[0], _b=nums[1],
+                                 color=cats[0] if cats else None),
+        params={**default_params("Scatter Matrix"),
+                "max_cols": min(len(nums), 6), "sample_n": sample_n},
+        title=f"SPLOM: {len(nums)} × {len(nums)} scatter matrix",
+        rationale=(
+            f"{len(nums)} numeric columns → {len(nums)**2} pairwise panels. "
+            f"SPLOM simultaneously identifies correlation pairs, clusters, and outlier dimensions."
+        ),
+        score=min(0.82, 0.60 + 0.06 * min(len(nums) - 4, 5)),
+    )
+
+
+# ── N+7. Recurring categorical pairs → Network Graph ─────────────────────────
+
+def _network_pairs(df: pd.DataFrame) -> SuggestionResult | None:
+    cats = categorical_cols(df)
+    if len(cats) < 2:
+        return None
+
+    src_cols = [c for c in cats if FLOW_SRC_HINTS.search(c)]
+    tgt_cols = [c for c in cats if FLOW_TGT_HINTS.search(c)]
+    if src_cols and tgt_cols and src_cols[0] != tgt_cols[0]:
+        src, tgt, score = src_cols[0], tgt_cols[0], 0.82
+    else:
+        ordered = sorted(cats, key=lambda c: df[c].nunique())
+        src, tgt = ordered[0], ordered[-1]
+        try:
+            unique_pairs = df[[src, tgt]].drop_duplicates()
+            pair_ratio = 1.0 - len(unique_pairs) / len(df)
+        except Exception:
+            pair_ratio = 0.0
+        if pair_ratio < 0.3 or df[src].nunique() < 3:
+            return None
+        score = 0.45 + 0.25 * pair_ratio
+
+    num = best_numeric(df)
+    n_nodes = df[src].nunique() + df[tgt].nunique()
+    return SuggestionResult(
+        chart_name="Network Graph",
+        columns=complete_columns("Network Graph", source=src, target=tgt, weight=num),
+        params={**default_params("Network Graph")},
+        title=f"Network: {src} ↔ {tgt}  ({n_nodes} nodes)",
+        rationale=(
+            f"Recurring {src}→{tgt} pairs form a graph of {n_nodes} nodes. "
+            f"Spring layout reveals central hubs, clusters, and isolated pairs."
+        ),
+        score=min(0.88, score),
+    )
+
+
+# ── N+8. Bidirectional flow pattern → Chord Diagram ─────────────────────────
+
+def _chord_flow(df: pd.DataFrame) -> SuggestionResult | None:
+    cats = categorical_cols(df)
+    if len(cats) < 2:
+        return None
+
+    src_cols = [c for c in cats if FLOW_SRC_HINTS.search(c)]
+    tgt_cols = [c for c in cats if FLOW_TGT_HINTS.search(c)]
+    if src_cols and tgt_cols and src_cols[0] != tgt_cols[0]:
+        src, tgt, score = src_cols[0], tgt_cols[0], 0.85
+    else:
+        ordered = sorted(cats, key=lambda c: df[c].nunique())
+        src, tgt = ordered[0], ordered[-1]
+        n_s, n_t = df[src].nunique(), df[tgt].nunique()
+        if n_s > 15 or n_t > 15 or n_s < 2:
+            return None
+        score = 0.42
+
+    src_vals = set(df[src].dropna().unique())
+    tgt_vals = set(df[tgt].dropna().unique())
+    overlap = src_vals & tgt_vals
+    if overlap:
+        score = min(score + 0.15, 0.92)
+
+    num = best_numeric(df)
+    return SuggestionResult(
+        chart_name="Chord Diagram",
+        columns=complete_columns("Chord Diagram", source=src, target=tgt, value=num),
+        params={**default_params("Chord Diagram")},
+        title=f"Chord: {src} ↔ {tgt}" + (" (circular)" if overlap else ""),
+        rationale=(
+            f"{'Bidirectional' if overlap else 'Directional'} flow between {src} and {tgt} "
+            f"shown as circular chord arcs — ribbon width ∝ {num or 'count'}, "
+            + (f"{len(overlap)} nodes appear on both sides revealing circular flows." if overlap
+               else "instantly highlights dominant flows.")
+        ),
+        score=score,
+    )
+
+
+# ── N+9. Two numeric cols, large dataset → Density Heatmap ──────────────────
+
+def _density_large(df: pd.DataFrame) -> SuggestionResult | None:
+    nums = numeric_cols(df)
+    if len(nums) < 2 or len(df) < 200:
+        return None
+
+    best_x, best_y, best_r = None, None, 0.0
+    for i in range(len(nums)):
+        for j in range(i + 1, len(nums)):
+            r = abs(pearson_r(df, nums[i], nums[j]))
+            if r > best_r:
+                best_r, best_x, best_y = r, nums[i], nums[j]
+
+    if best_x is None:
+        return None
+
+    n_rows = len(df)
+    z = nums[2] if len(nums) > 2 else None
+    log = n_rows > 5000
+    score = min(0.82, 0.50 + 0.20 * min(n_rows / 2000, 1.0) + 0.12 * best_r)
+    return SuggestionResult(
+        chart_name="Density Heatmap",
+        columns=complete_columns("Density Heatmap", x=best_x, y=best_y, z=z),
+        params={**default_params("Density Heatmap"),
+                "nbins_x": 30, "nbins_y": 30, "log_scale": log},
+        title=f"Density: {best_y} vs {best_x}  (n={n_rows:,})",
+        rationale=(
+            f"{n_rows:,} data points — scatter would overplot. "
+            f"Density heatmap (|r|={best_r:.2f}) reveals where the mass of data actually lies."
+        ),
+        score=score,
+    )
+
+
 _ANALYSES = [
     _correlation_scatter,
     _trend_line,
     _pareto_bar,
     _distribution_shape,
-    _outlier_box,          # also Distribution — will be deduplicated
+    _outlier_box,
     _variance_heatmap,
     _signed_waterfall,
     _funnel_efficiency,
     _sensitivity_tornado,
+    # New chart type analyses
+    _forecast_trend,
+    _box_by_category,
+    _violin_skew,
+    _strip_dense,
+    _correlation_matrix_multi,
+    _scatter_matrix_splom,
+    _network_pairs,
+    _chord_flow,
+    _density_large,
 ]
 
 

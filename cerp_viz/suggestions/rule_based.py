@@ -352,9 +352,237 @@ def _bullet(df: pd.DataFrame) -> SuggestionResult | None:
     )
 
 
+def _boxplot(df: pd.DataFrame) -> SuggestionResult | None:
+    num = best_numeric(df)
+    cat = best_categorical(df, target_n=6)
+    if not num or not cat:
+        return None
+    n = df[cat].nunique()
+    if n < 2 or n > 20:
+        return None
+    return SuggestionResult(
+        chart_name="Box Plot",
+        columns=complete_columns("Box Plot", x=cat, y=num, color=None),
+        params={**default_params("Box Plot")},
+        title=f"Distribution of {num} by {cat}",
+        rationale=(
+            f"Compares {num} across {n} {cat} groups — "
+            f"shows medians, IQR, and outliers side-by-side."
+        ),
+        score=0.62 + 0.20 * cardinality_score(n, lo=3, hi=10),
+        transforms=suggest_outlier_filter(df, num) + suggest_null_filter(df, num),
+    )
+
+
+def _violin(df: pd.DataFrame) -> SuggestionResult | None:
+    num = best_numeric(df)
+    cat = best_categorical(df, target_n=5)
+    if not num or not cat:
+        return None
+    n = df[cat].nunique()
+    if n < 2 or n > 15:
+        return None
+    if (len(df) / n) < 5:
+        return None
+    return SuggestionResult(
+        chart_name="Violin Plot",
+        columns=complete_columns("Violin Plot", x=cat, y=num, color=None),
+        params={**default_params("Violin Plot"), "show_box": True},
+        title=f"Shape of {num} across {cat}",
+        rationale=(
+            f"Violin reveals full density distribution of {num} within each {cat} group — "
+            f"shows multimodality that box plots hide."
+        ),
+        score=0.58 + 0.22 * cardinality_score(n, lo=2, hi=8),
+        transforms=suggest_outlier_filter(df, num),
+    )
+
+
+def _strip_plot(df: pd.DataFrame) -> SuggestionResult | None:
+    num = best_numeric(df)
+    cat = best_categorical(df, target_n=5)
+    if not num or not cat:
+        return None
+    n = df[cat].nunique()
+    if n < 2 or n > 20:
+        return None
+    if len(df) > 2000:
+        return None
+    return SuggestionResult(
+        chart_name="Strip Plot",
+        columns=complete_columns("Strip Plot", x=cat, y=num, color=None),
+        params={**default_params("Strip Plot"), "jitter": 0.3, "show_box": True},
+        title=f"All {num} values by {cat}",
+        rationale=(
+            f"{len(df)} rows across {n} {cat} groups — strip plot shows every data point "
+            f"so outliers, clusters, and gaps are immediately visible."
+        ),
+        score=0.60 + 0.15 * cardinality_score(n, lo=2, hi=8),
+    )
+
+
+def _calendar_heatmap(df: pd.DataFrame) -> SuggestionResult | None:
+    dt = datetime_cols(df)
+    num = best_numeric(df)
+    if not dt or not num:
+        return None
+    date_col = dt[0]
+    try:
+        parsed = pd.to_datetime(df[date_col], errors="coerce").dropna()
+        n_days = parsed.dt.date.nunique()
+        if n_days < 7:
+            return None
+    except Exception:
+        return None
+    return SuggestionResult(
+        chart_name="Calendar Heatmap",
+        columns=complete_columns("Calendar Heatmap", date=date_col, value=num),
+        params={**default_params("Calendar Heatmap"), "aggregation": "Sum"},
+        title=f"{num} calendar",
+        rationale=(
+            f"Data spans {n_days} unique dates — calendar heatmap reveals daily patterns, "
+            f"weekday/weekend cycles, and seasonal spikes in {num}."
+        ),
+        score=0.72,
+        transforms=suggest_date_parts(df, date_col),
+    )
+
+
+def _forecast(df: pd.DataFrame) -> SuggestionResult | None:
+    dt = datetime_cols(df)
+    num = best_numeric(df)
+    if not dt or not num or len(df) < 5:
+        return None
+    date_col = dt[0]
+    return SuggestionResult(
+        chart_name="Forecast",
+        columns=complete_columns("Forecast", date=date_col, value=num),
+        params={**default_params("Forecast")},
+        title=f"{num} forecast",
+        rationale=(
+            f"Projects future {num} values from {len(df)} historical data points — "
+            f"visualizes trend with polynomial fit and confidence intervals."
+        ),
+        score=0.68,
+        transforms=suggest_date_parts(df, date_col),
+    )
+
+
+def _network_graph(df: pd.DataFrame) -> SuggestionResult | None:
+    cats = categorical_cols(df)
+    if len(cats) < 2:
+        return None
+    src_cols = [c for c in cats if FLOW_SRC_HINTS.search(c)]
+    tgt_cols = [c for c in cats if FLOW_TGT_HINTS.search(c)]
+    if src_cols and tgt_cols and src_cols[0] != tgt_cols[0]:
+        src, tgt, score = src_cols[0], tgt_cols[0], 0.85
+    else:
+        ordered = sorted(cats, key=lambda c: df[c].nunique())
+        src, tgt, score = ordered[0], ordered[-1], 0.40
+    num = best_numeric(df)
+    return SuggestionResult(
+        chart_name="Network Graph",
+        columns=complete_columns("Network Graph", source=src, target=tgt, weight=num),
+        params={**default_params("Network Graph")},
+        title=f"Network: {src} → {tgt}",
+        rationale=(
+            f"Visualizes relationships between {src} and {tgt} as a force-directed graph — "
+            f"node size and edge width reflect {num or 'frequency'}."
+        ),
+        score=score,
+    )
+
+
+def _chord_diagram(df: pd.DataFrame) -> SuggestionResult | None:
+    cats = categorical_cols(df)
+    if len(cats) < 2:
+        return None
+    src_cols = [c for c in cats if FLOW_SRC_HINTS.search(c)]
+    tgt_cols = [c for c in cats if FLOW_TGT_HINTS.search(c)]
+    if src_cols and tgt_cols and src_cols[0] != tgt_cols[0]:
+        src, tgt, score = src_cols[0], tgt_cols[0], 0.82
+    else:
+        ordered = sorted(cats, key=lambda c: df[c].nunique())
+        src, tgt = ordered[0], ordered[-1]
+        if df[src].nunique() > 15 or df[tgt].nunique() > 15:
+            return None
+        score = 0.42
+    num = best_numeric(df)
+    return SuggestionResult(
+        chart_name="Chord Diagram",
+        columns=complete_columns("Chord Diagram", source=src, target=tgt, value=num),
+        params={**default_params("Chord Diagram")},
+        title=f"Flow: {src} ↔ {tgt}",
+        rationale=(
+            f"Chord diagram shows bidirectional flow between {src} and {tgt} — "
+            f"arc width encodes {num or 'frequency'}, revealing dominant flows."
+        ),
+        score=score,
+    )
+
+
+def _correlation_matrix_rb(df: pd.DataFrame) -> SuggestionResult | None:
+    nums = numeric_cols(df)
+    if len(nums) < 3:
+        return None
+    return SuggestionResult(
+        chart_name="Correlation Matrix",
+        columns=complete_columns("Correlation Matrix", _a=nums[0], _b=nums[1]),
+        params={**default_params("Correlation Matrix")},
+        title=f"Correlations across {len(nums)} numeric columns",
+        rationale=(
+            f"With {len(nums)} numeric columns, a correlation matrix instantly shows "
+            f"which pairs move together — essential for feature selection and hypothesis generation."
+        ),
+        score=0.65 + 0.10 * min(1.0, (len(nums) - 3) / 5),
+    )
+
+
+def _scatter_matrix_rb(df: pd.DataFrame) -> SuggestionResult | None:
+    nums = numeric_cols(df)
+    if len(nums) < 4:
+        return None
+    cats = categorical_cols(df)
+    return SuggestionResult(
+        chart_name="Scatter Matrix",
+        columns=complete_columns("Scatter Matrix", _a=nums[0], _b=nums[1],
+                                 color=cats[0] if cats else None),
+        params={**default_params("Scatter Matrix"), "max_cols": min(len(nums), 6)},
+        title=f"SPLOM: all pairwise scatter plots ({len(nums)} columns)",
+        rationale=(
+            f"{len(nums)} numeric columns → {len(nums)**2} pairwise views — "
+            f"SPLOM spots clusters, correlations, and outliers across all pairs at once."
+        ),
+        score=0.58 + 0.12 * min(1.0, (len(nums) - 4) / 6),
+    )
+
+
+def _density_heatmap_rb(df: pd.DataFrame) -> SuggestionResult | None:
+    nums = numeric_cols(df)
+    if len(nums) < 2 or len(df) < 100:
+        return None
+    z_col = nums[2] if len(nums) > 2 else None
+    return SuggestionResult(
+        chart_name="Density Heatmap",
+        columns=complete_columns("Density Heatmap", x=nums[0], y=nums[1], z=z_col),
+        params={**default_params("Density Heatmap")},
+        title=f"Density: {nums[1]} vs {nums[0]}",
+        rationale=(
+            f"{len(df):,} rows — scatter would overplot. "
+            f"Density heatmap bins data into a 2-D grid revealing where points concentrate."
+        ),
+        score=0.55 + 0.25 * min(1.0, len(df) / 2000),
+    )
+
+
 _BUILDERS = [_bar, _line, _scatter, _heatmap, _waterfall,
              _distribution, _tornado, _funnel, _sankey,
-             _area, _pie, _treemap, _kpi, _bullet]
+             _area, _pie, _treemap, _kpi, _bullet,
+             _boxplot, _violin, _strip_plot,
+             _calendar_heatmap, _forecast,
+             _network_graph, _chord_diagram,
+             _correlation_matrix_rb, _scatter_matrix_rb,
+             _density_heatmap_rb]
 
 
 # ── Suggester class ───────────────────────────────────────────────────────────
