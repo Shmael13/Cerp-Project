@@ -911,6 +911,72 @@ def _gantt_duration(df: pd.DataFrame) -> SuggestionResult | None:
     )
 
 
+def _bar_race_stat(df: pd.DataFrame) -> SuggestionResult | None:
+    dt   = datetime_cols(df)
+    cats = categorical_cols(df)
+    nums = numeric_cols(df)
+    if not cats or not nums:
+        return None
+
+    time_col = dt[0] if dt else None
+    if time_col is None:
+        by_card = sorted([c for c in cats if df[c].nunique() >= 3],
+                         key=lambda c: df[c].nunique(), reverse=True)
+        if len(by_card) < 2:
+            return None
+        time_col = by_card[0]
+
+    cat_col = next(
+        (c for c in cats if c != time_col and df[c].nunique() >= 3),
+        None,
+    )
+    best_num, best_r2 = None, -1.0
+    for num in nums:
+        col = df[num].dropna()
+        if len(col) < 3:
+            continue
+        r2 = ols_r2(np.arange(len(col)), col.values)
+        if r2 > best_r2:
+            best_r2, best_num = r2, num
+
+    if not cat_col or not best_num:
+        return None
+
+    n_periods = df[time_col].nunique()
+    n_cats    = df[cat_col].nunique()
+    if n_periods < 3 or n_cats < 3:
+        return None
+
+    # Measure how much rankings shift across periods (high volatility → interesting race)
+    try:
+        agg_fn = "sum"
+        grouped = (
+            df.groupby([time_col, cat_col])[best_num].agg(agg_fn).reset_index()
+        )
+        grouped.columns = ["time", "cat", "val"]
+        grouped["rank"] = grouped.groupby("time")["val"].rank(ascending=False)
+        rank_vol = float(grouped.groupby("cat")["rank"].std().mean())
+    except Exception:
+        rank_vol = 1.0
+
+    if rank_vol < 0.5:
+        return None
+
+    score = min(0.86, 0.55 + 0.15 * min(rank_vol, 2.0) + 0.04 * min(n_periods / 10, 1.0))
+    return SuggestionResult(
+        chart_name="Bar Race",
+        columns=complete_columns("Bar Race", time=time_col, value=best_num, category=cat_col),
+        params={**default_params("Bar Race")},
+        title=f"{best_num} race: {cat_col} rankings shift over time",
+        rationale=(
+            f"Average rank volatility of {rank_vol:.1f} across {n_cats} {cat_col} categories "
+            f"over {n_periods} periods — animated bar race makes the shifting dominance visible."
+        ),
+        score=score,
+        transforms=suggest_date_parts(df, time_col),
+    )
+
+
 def _calendar_heatmap_stat(df: pd.DataFrame) -> SuggestionResult | None:
     dt   = datetime_cols(df)
     nums = numeric_cols(df)
@@ -979,6 +1045,7 @@ _ANALYSES = [
     _lollipop_stats,
     _gantt_duration,
     _calendar_heatmap_stat,
+    _bar_race_stat,
 ]
 
 

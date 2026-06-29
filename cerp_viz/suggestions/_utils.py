@@ -467,6 +467,15 @@ _QUERY_CHART_ALIASES: dict[str, str] = {
     "milestones":             "Gantt Chart",
     "task chart":             "Gantt Chart",
     "activity chart":         "Gantt Chart",
+    # Bar Race
+    "bar race":               "Bar Race",
+    "race chart":             "Bar Race",
+    "racing bar":             "Bar Race",
+    "animated bar":           "Bar Race",
+    "bar chart race":         "Bar Race",
+    "racing bars":            "Bar Race",
+    "animated ranking":       "Bar Race",
+    "rank race":              "Bar Race",
 }
 
 

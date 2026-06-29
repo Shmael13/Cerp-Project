@@ -674,6 +674,49 @@ def _gantt_rb(df: pd.DataFrame) -> SuggestionResult | None:
     )
 
 
+def _bar_race_rb(df: pd.DataFrame) -> SuggestionResult | None:
+    cats = categorical_cols(df)
+    nums = numeric_cols(df)
+    if not cats or not nums:
+        return None
+
+    dt = datetime_cols(df)
+    if dt:
+        time_col = dt[0]
+        cat_candidates = [c for c in cats if df[c].nunique() >= 3]
+    else:
+        # Most-unique column → time axis; second → categories
+        by_card = sorted([c for c in cats if df[c].nunique() >= 3],
+                         key=lambda c: df[c].nunique(), reverse=True)
+        if len(by_card) < 2:
+            return None
+        time_col      = by_card[0]
+        cat_candidates = by_card[1:]
+
+    cat_col = next((c for c in cat_candidates if c != time_col), None)
+    num     = best_numeric(df)
+    if not cat_col or not num:
+        return None
+
+    n_periods = df[time_col].nunique()
+    n_cats    = df[cat_col].nunique()
+    if n_periods < 3 or n_cats < 3:
+        return None
+
+    return SuggestionResult(
+        chart_name="Bar Race",
+        columns=complete_columns("Bar Race", time=time_col, value=num, category=cat_col),
+        params={**default_params("Bar Race")},
+        title=f"{num} race: {cat_col} over {n_periods} {time_col} periods",
+        rationale=(
+            f"{n_cats} {cat_col} categories compete across {n_periods} {time_col} periods — "
+            f"animated bar race shows which categories dominate and when they peak."
+        ),
+        score=0.68 + 0.12 * cardinality_score(n_periods, lo=4, hi=20),
+        transforms=suggest_date_parts(df, time_col),
+    )
+
+
 _BUILDERS = [_bar, _line, _scatter, _heatmap, _waterfall,
              _distribution, _tornado, _funnel, _sankey,
              _area, _pie, _treemap, _kpi, _bullet,
@@ -682,7 +725,7 @@ _BUILDERS = [_bar, _line, _scatter, _heatmap, _waterfall,
              _network_graph, _chord_diagram,
              _correlation_matrix_rb, _scatter_matrix_rb,
              _density_heatmap_rb, _marginal_scatter_rb,
-             _lollipop_rb, _gantt_rb]
+             _lollipop_rb, _gantt_rb, _bar_race_rb]
 
 
 # ── Suggester class ───────────────────────────────────────────────────────────

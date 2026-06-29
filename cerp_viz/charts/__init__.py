@@ -13,6 +13,7 @@ from cerp_viz.charts import density_heatmap
 from cerp_viz.charts import marginal_scatter
 from cerp_viz.charts import lollipop
 from cerp_viz.charts import gantt
+from cerp_viz.charts import bar_race
 
 __all__ = [
     "bar", "line", "waterfall", "heatmap", "scatter", "sankey",
@@ -30,4 +31,5 @@ __all__ = [
     "marginal_scatter",
     "lollipop",
     "gantt",
+    "bar_race",
 ]
