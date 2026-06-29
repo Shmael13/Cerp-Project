@@ -10,7 +10,12 @@ import streamlit as st
 from cerp_viz.core.scenarios import ScenarioStore
 
 
-def render(store: ScenarioStore, current_params: dict[str, Any]) -> None:
+def render(
+    store: ScenarioStore,
+    current_params: dict[str, Any],
+    sheet_name: str = "",
+    col_mapping: dict | None = None,
+) -> None:
     """Render the Scenarios section in the sidebar. Mutates store in place."""
     st.sidebar.markdown("**── Scenarios ──**")
 
@@ -18,7 +23,7 @@ def render(store: ScenarioStore, current_params: dict[str, Any]) -> None:
 
     if st.sidebar.button("💾 Save current assumptions", use_container_width=True):
         if name.strip():
-            store.save(name.strip(), current_params)
+            store.save(name.strip(), current_params, sheet_name=sheet_name, col_mapping=col_mapping)
         else:
             st.sidebar.warning("Enter a name before saving.")
 

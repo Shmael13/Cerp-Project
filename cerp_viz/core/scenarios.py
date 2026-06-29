@@ -7,6 +7,8 @@ from typing import Any
 class Scenario:
     name: str
     params: dict[str, Any]
+    sheet_name: str = ""
+    col_mapping: dict = field(default_factory=dict)
 
 
 class ScenarioStore:
@@ -16,8 +18,19 @@ class ScenarioStore:
     def __init__(self) -> None:
         self._store: dict[str, Scenario] = {}
 
-    def save(self, name: str, params: dict[str, Any]) -> None:
-        self._store[name] = Scenario(name=name, params=dict(params))
+    def save(
+        self,
+        name: str,
+        params: dict[str, Any],
+        sheet_name: str = "",
+        col_mapping: dict | None = None,
+    ) -> None:
+        self._store[name] = Scenario(
+            name=name,
+            params=dict(params),
+            sheet_name=sheet_name,
+            col_mapping=dict(col_mapping or {}),
+        )
 
     def get(self, name: str) -> Scenario | None:
         return self._store.get(name)

@@ -71,6 +71,9 @@ def main() -> None:
         render_welcome()
         st.stop()
 
+    st.session_state["_all_sheets"] = sheets
+    st.session_state["_current_sheet_name"] = sheet_name
+
     raw_df = sheets[sheet_name]
 
     # ── Multi-file join (optional, overrides raw_df when active) ─────────────
@@ -140,7 +143,7 @@ def main() -> None:
 
     # ── Scenario panel ────────────────────────────────────────────────────────
     st.sidebar.divider()
-    scenario_panel.render(store, params)
+    scenario_panel.render(store, params, sheet_name=sheet_name, col_mapping=col_mapping)
 
     # ── Config import / export ────────────────────────────────────────────────
     st.sidebar.divider()
@@ -187,7 +190,7 @@ def main() -> None:
 
     # ── Tab 3 (slot 2): Scenario comparison ──────────────────────────────────
     with tab_compare:
-        render_compare_panel(df, viz, col_mapping, store, theme)
+        render_compare_panel(df, viz, col_mapping, store, theme, sheets=sheets)
 
     # ── Tab 4: What-If Simulator ──────────────────────────────────────────────
     with tab_whatif:
