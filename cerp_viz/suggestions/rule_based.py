@@ -455,16 +455,23 @@ def _forecast(df: pd.DataFrame) -> SuggestionResult | None:
     if not dt or not num or len(df) < 5:
         return None
     date_col = dt[0]
+    nums = numeric_cols(df)
+    comp_col = next((c for c in nums if c != num), None)
+    extra_params: dict = {}
+    extra_rationale = ""
+    if comp_col:
+        extra_params["comparison_col"] = comp_col
+        extra_rationale = f" Overlays '{comp_col}' as a baseline for comparison."
     return SuggestionResult(
         chart_name="Forecast",
         columns=complete_columns("Forecast", date=date_col, value=num),
-        params={**default_params("Forecast")},
+        params={**default_params("Forecast"), **extra_params},
         title=f"{num} forecast",
         rationale=(
             f"Projects future {num} values from {len(df)} historical data points — "
-            f"visualizes trend with polynomial fit and confidence intervals."
+            f"visualizes trend with polynomial fit and confidence intervals.{extra_rationale}"
         ),
-        score=0.68,
+        score=0.72 if comp_col else 0.68,
         transforms=suggest_date_parts(df, date_col),
     )
 

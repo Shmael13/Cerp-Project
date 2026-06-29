@@ -456,17 +456,24 @@ def _forecast_trend(df: pd.DataFrame) -> SuggestionResult | None:
     if best_num is None or best_r2 < 0.15:
         return None
 
-    score = min(0.92, 0.55 + 0.45 * best_r2)
+    comp_col = next((n for n in nums if n != best_num), None)
+    extra_params: dict = {}
+    comp_note = ""
+    if comp_col:
+        extra_params["comparison_col"] = comp_col
+        comp_note = f" '{comp_col}' overlaid as actual/baseline for direct comparison."
+
+    score = min(0.92, 0.55 + 0.45 * best_r2) + (0.03 if comp_col else 0.0)
     return SuggestionResult(
         chart_name="Forecast",
         columns=complete_columns("Forecast", date=date_col, value=best_num),
-        params={**default_params("Forecast")},
+        params={**default_params("Forecast"), **extra_params},
         title=f"{best_num} forecast  (trend R²={best_r2:.2f})",
         rationale=(
             f"Detectable trend in {best_num} (R²={best_r2:.2f}) across {len(df)} periods. "
-            f"Forecast projects values forward with polynomial fit and confidence intervals."
+            f"Forecast projects values forward with polynomial fit and confidence intervals.{comp_note}"
         ),
-        score=score,
+        score=min(0.95, score),
         transforms=suggest_date_parts(df, date_col),
     )
 
