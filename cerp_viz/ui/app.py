@@ -14,6 +14,10 @@ from cerp_viz.suggestions import suggester_registry
 from cerp_viz.ui import assumption_panel, scenario_panel, sidebar
 from cerp_viz.ui.assumption_panel import apply_title_subtitle
 from cerp_viz.ui.transform_panel import render_transform_panel
+from cerp_viz.ui.whatif_panel import render_whatif_panel
+from cerp_viz.ui.multifile_panel import render_multifile_panel
+from cerp_viz.ui.data_tab import render_data_tab
+from cerp_viz.ui.welcome_panel import render_welcome
 from cerp_viz.core.transform import apply_transforms
 
 
@@ -60,10 +64,15 @@ def main() -> None:
     sheets, sheet_name = sidebar.render_upload()
 
     if sheets is None:
-        st.info("👈 Upload an Excel (.xlsx / .xls) or CSV file to get started.")
+        render_welcome()
         st.stop()
 
     raw_df = sheets[sheet_name]
+
+    # ── Multi-file join (optional, overrides raw_df when active) ─────────────
+    st.sidebar.divider()
+    render_multifile_panel(raw_df)
+    raw_df = st.session_state.get("merged_df", raw_df)
 
     # ── Data transforms (filters, derived cols, date parts) ───────────────────
     st.sidebar.divider()
@@ -137,8 +146,8 @@ def main() -> None:
     figure_error   = st.session_state.get("figure_error")
 
     # ── Tabs ─────────────────────────────────────────────────────────────────
-    tab_qs, tab_chart, tab_compare, tab_dash, tab_data = st.tabs(
-        ["💡 Quick Start", "📊 Chart", "⚖️ Compare Scenarios", "📋 Dashboard", "🗂 Data"]
+    tab_qs, tab_chart, tab_compare, tab_whatif, tab_dash, tab_data = st.tabs(
+        ["💡 Quick Start", "📊 Chart", "⚖️ Compare Scenarios", "🔮 What-If", "📋 Dashboard", "🗂 Data"]
     )
 
     # ── Tab 1: Quick Start (most useful entry point) ──────────────────────────
@@ -207,25 +216,18 @@ def main() -> None:
                 _render_warnings(st, compare_result.warnings)
                 StreamlitRenderer().render(compare_result.figure)
 
-    # ── Tab 3: Dashboard ─────────────────────────────────────────────────────
+    # ── Tab 4: What-If Simulator ──────────────────────────────────────────────
+    with tab_whatif:
+        render_whatif_panel(df, viz, col_mapping, params, theme)
+
+    # ── Tab 5: Dashboard ─────────────────────────────────────────────────────
     with tab_dash:
         from cerp_viz.ui.dashboard_tab import render_dashboard
         render_dashboard(df, dashboard, theme, available)
 
-    # ── Tab 5: Data ───────────────────────────────────────────────────────────
+    # ── Tab 6: Data ───────────────────────────────────────────────────────────
     with tab_data:
-        st.subheader(f"Data Preview — {sheet_name}")
-        c1, c2, c3 = st.columns(3)
-        c1.metric("Rows", f"{len(df):,}")
-        c2.metric("Columns", len(df.columns))
-        c3.metric("Missing cells", f"{df.isnull().sum().sum():,}")
-        st.dataframe(df, use_container_width=True)
-
-        if build_result is not None:
-            if st.button("⬇️ Export chart as HTML"):
-                from cerp_viz.renderers.html_renderer import HTMLRenderer
-                HTMLRenderer("cerp_output.html").render(build_result.figure)
-                st.success("Saved to cerp_output.html")
+        render_data_tab(df, sheet_name, build_result)
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
