@@ -6,7 +6,7 @@ from io import BytesIO
 import pandas as pd
 import streamlit as st
 
-from cerp_viz.core.simulate import SimRule, apply_rules, available_operations
+from cerp_viz.core.simulate import SimRule, apply_rules, available_operations, CONDITION_OPS
 from cerp_viz.core.theme import apply_theme
 from cerp_viz.renderers.streamlit_renderer import StreamlitRenderer
 
@@ -46,13 +46,26 @@ _OP_PREVIEW = {
 }
 
 
-def _build_rules(n: int, numeric_cols: list[str]) -> list[SimRule]:
+def _build_rules(n: int, numeric_cols: list[str], all_cols: list[str]) -> list[SimRule]:
     rules: list[SimRule] = []
     for i in range(n):
         col = st.session_state.get(f"wi_col_{i}", numeric_cols[0])
         op  = st.session_state.get(f"wi_op_{i}", "scale")
         val = st.session_state.get(f"wi_val_{i}", _OP_DEFAULTS.get(op, 1.0))
-        rules.append(SimRule(column=col, operation=op, value=float(val)))
+
+        cond_enabled = st.session_state.get(f"wi_cond_{i}", False)
+        cond_col = st.session_state.get(f"wi_cond_col_{i}") if cond_enabled else None
+        cond_op  = st.session_state.get(f"wi_cond_op_{i}", "==") if cond_enabled else None
+        cond_val = st.session_state.get(f"wi_cond_val_{i}", "") if cond_enabled else None
+
+        rules.append(SimRule(
+            column=col,
+            operation=op,
+            value=float(val),
+            condition_col=cond_col or None,
+            condition_op=cond_op or None,
+            condition_val=str(cond_val) if cond_val is not None and str(cond_val).strip() else None,
+        ))
     return rules
 
 
@@ -61,10 +74,20 @@ def _rule_preview(i: int) -> str:
     op  = st.session_state.get(f"wi_op_{i}", "scale")
     val = float(st.session_state.get(f"wi_val_{i}", _OP_DEFAULTS.get(op, 1.0)))
     fn  = _OP_PREVIEW.get(op)
-    return fn(col, val) if fn and col else ""
+    base = fn(col, val) if fn and col else ""
+    if not base:
+        return ""
+    cond_enabled = st.session_state.get(f"wi_cond_{i}", False)
+    if cond_enabled:
+        cc = st.session_state.get(f"wi_cond_col_{i}", "")
+        co = st.session_state.get(f"wi_cond_op_{i}", "==")
+        cv = st.session_state.get(f"wi_cond_val_{i}", "")
+        if cc and cv:
+            return f"{base}  — only where **{cc}** {co} `{cv}`"
+    return base
 
 
-def _render_rule_row(i: int, numeric_cols: list[str], op_ids: list[str]) -> None:
+def _render_rule_row(i: int, numeric_cols: list[str], op_ids: list[str], all_cols: list[str]) -> None:
     c1, c2, c3 = st.columns([3, 2, 2])
     c1.selectbox(
         "Column", numeric_cols,
@@ -80,6 +103,29 @@ def _render_rule_row(i: int, numeric_cols: list[str], op_ids: list[str]) -> None
         "Value", value=default_val, step=0.1,
         key=f"wi_val_{i}", label_visibility="collapsed",
     )
+
+    # ── Optional condition row ────────────────────────────────────────────────
+    cond_enabled = st.checkbox(
+        "Apply only when…", key=f"wi_cond_{i}",
+        help="Restrict this rule to rows that satisfy a column condition.",
+    )
+    if cond_enabled:
+        cc1, cc2, cc3 = st.columns([3, 1, 2])
+        default_cond_col = all_cols[0] if all_cols else (numeric_cols[0] if numeric_cols else "")
+        cc1.selectbox(
+            "Condition column", all_cols,
+            key=f"wi_cond_col_{i}", label_visibility="collapsed",
+        )
+        cc2.selectbox(
+            "Op", CONDITION_OPS,
+            key=f"wi_cond_op_{i}", label_visibility="collapsed",
+        )
+        cc3.text_input(
+            "Threshold", value="",
+            key=f"wi_cond_val_{i}", label_visibility="collapsed",
+            placeholder="value or text",
+        )
+
     preview = _rule_preview(i)
     if preview:
         st.caption(f"↳ {preview}")
@@ -133,7 +179,7 @@ def _build_delta_df(df: pd.DataFrame, sim_df: pd.DataFrame, changed_cols: list[s
         delta_mean = sim_mean - base_mean
         pct_sum    = (delta_sum / base_sum * 100) if base_sum else 0.0
         rows.append({
-            "Column":    col,
+            "Column":     col,
             "Base Total": round(base_sum, 2),
             "Sim Total":  round(sim_sum, 2),
             "Δ Total":    round(delta_sum, 2),
@@ -176,8 +222,9 @@ def render_whatif_panel(df: pd.DataFrame, viz, col_mapping: dict, params: dict, 
         st.info("No numeric columns found in this dataset.")
         return
 
-    ops    = available_operations()
-    op_ids = [o["id"] for o in ops]
+    all_cols = list(df.columns)
+    ops      = available_operations()
+    op_ids   = [o["id"] for o in ops]
 
     if "wi_n_rules" not in st.session_state:
         st.session_state["wi_n_rules"] = 1
@@ -205,7 +252,7 @@ def render_whatif_panel(df: pd.DataFrame, viz, col_mapping: dict, params: dict, 
                 st.rerun()
 
     # ── Rule builder ──────────────────────────────────────────────────────────
-    st.markdown("**Rules** — applied sequentially to the data before re-rendering the chart")
+    st.markdown("**Rules** — applied sequentially; each rule can be scoped to matching rows only")
 
     hdr = st.columns([3, 2, 2])
     hdr[0].caption("Column")
@@ -213,7 +260,8 @@ def render_whatif_panel(df: pd.DataFrame, viz, col_mapping: dict, params: dict, 
     hdr[2].caption("Value")
 
     for i in range(n):
-        _render_rule_row(i, numeric_cols, op_ids)
+        with st.container(border=True):
+            _render_rule_row(i, numeric_cols, op_ids, all_cols)
 
     btn_add, btn_rem, btn_run, _ = st.columns([1, 1, 2, 3])
 
@@ -226,7 +274,7 @@ def render_whatif_panel(df: pd.DataFrame, viz, col_mapping: dict, params: dict, 
         st.rerun()
 
     if btn_run.button("▶  Run Simulation", type="primary", use_container_width=True, key="wi_run"):
-        rules = _build_rules(n, numeric_cols)
+        rules = _build_rules(n, numeric_cols, all_cols)
         label = st.session_state.get("wi_scenario_name", "Scenario A") or "Scenario A"
         try:
             result = _run_simulation(df, rules, viz, col_mapping, params, theme, label)
@@ -245,11 +293,27 @@ def render_whatif_panel(df: pd.DataFrame, viz, col_mapping: dict, params: dict, 
         st.divider()
         st.caption(
             "Configure one or more rules above, then click **▶ Run Simulation**. "
-            "The chart will appear side-by-side with the baseline so you can spot differences immediately."
+            "Each rule can optionally target only rows matching a column condition — "
+            "e.g. scale Revenue × 1.2 only where Region = 'North'."
         )
         return
 
     st.divider()
+
+    # ── Active rules summary ──────────────────────────────────────────────────
+    saved_rules: list[SimRule] = st.session_state.get("wi_rules", [])
+    if saved_rules:
+        with st.expander("📋 Active rules", expanded=False):
+            for r in saved_rules:
+                cond_text = (
+                    f"  — **only where** {r.condition_col} {r.condition_op} `{r.condition_val}`"
+                    if r.condition_col and r.condition_op and r.condition_val
+                    else ""
+                )
+                op_label = _OP_SHORT.get(r.operation, r.operation)
+                st.markdown(
+                    f"- **{r.column}** {op_label} `{r.value:g}`{cond_text}"
+                )
 
     # ── Output tabs ───────────────────────────────────────────────────────────
     tab_charts, tab_impact, tab_data = st.tabs(["📊 Chart Comparison", "📈 Impact Summary", "📋 Data Table"])
