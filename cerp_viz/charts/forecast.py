@@ -6,6 +6,7 @@ from typing import Any, ClassVar
 import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 
 from cerp_viz.core.base import BaseVisualization
 from cerp_viz.core.models import AssumptionSpec, BuildResult, ColumnSpec
@@ -90,6 +91,97 @@ def _fit_and_forecast(
     return y_fit, y_fore, residuals
 
 
+# ── Seasonal decomposition (additive, no external dependencies) ───────────────
+
+def _auto_period(gaps_days: np.ndarray) -> int:
+    median_gap = float(np.median(gaps_days))
+    if median_gap <= 2:
+        return 7       # daily data → weekly seasonality
+    if median_gap <= 10:
+        return 4       # weekly data → quarterly seasonality
+    if median_gap <= 45:
+        return 12      # monthly data → annual seasonality
+    return 4           # quarterly data → annual seasonality
+
+
+def _classical_decompose(
+    y: np.ndarray, period: int
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Additive decomposition: trend (centred MA) + seasonal + residual."""
+    n = len(y)
+    # Centered moving average for trend
+    half = period // 2
+    trend = np.full(n, np.nan)
+    for i in range(half, n - half):
+        trend[i] = y[i - half : i + half + 1].mean()
+
+    # Fill edges with nearest valid value
+    first_valid = next((i for i in range(n) if not np.isnan(trend[i])), 0)
+    last_valid  = next((i for i in range(n - 1, -1, -1) if not np.isnan(trend[i])), n - 1)
+    trend[:first_valid] = trend[first_valid]
+    trend[last_valid + 1:] = trend[last_valid]
+
+    detrended = y - trend
+
+    # Seasonal: average per phase
+    seasonal_proto = np.zeros(period)
+    for phase in range(period):
+        vals = detrended[phase::period]
+        seasonal_proto[phase] = np.nanmean(vals) if len(vals) > 0 else 0.0
+    seasonal_proto -= seasonal_proto.mean()   # force zero-mean
+
+    seasonal = np.array([seasonal_proto[i % period] for i in range(n)])
+    residual = y - trend - seasonal
+    return trend, seasonal, residual
+
+
+def _build_decomposition_fig(
+    dates: list[pd.Timestamp],
+    y: np.ndarray,
+    trend: np.ndarray,
+    seasonal: np.ndarray,
+    residual: np.ndarray,
+    val_col: str,
+    period: int,
+) -> go.Figure:
+    fig = make_subplots(
+        rows=4, cols=1,
+        shared_xaxes=True,
+        subplot_titles=["Observed", "Trend", "Seasonal", "Residual"],
+        vertical_spacing=0.06,
+        row_heights=[0.35, 0.25, 0.2, 0.2],
+    )
+
+    fig.add_trace(go.Scatter(x=dates, y=y, mode="lines+markers",
+                             name="Observed", line=dict(color="steelblue", width=1.5),
+                             marker=dict(size=3)), row=1, col=1)
+
+    fig.add_trace(go.Scatter(x=dates, y=trend, mode="lines",
+                             name="Trend", line=dict(color="darkorange", width=2)),
+                  row=2, col=1)
+
+    fig.add_trace(go.Bar(x=dates, y=seasonal, name="Seasonal",
+                         marker_color="mediumseagreen", opacity=0.7),
+                  row=3, col=1)
+
+    zero_color = ["firebrick" if r > 0 else "steelblue" for r in residual]
+    fig.add_trace(go.Bar(x=dates, y=residual, name="Residual",
+                         marker_color=zero_color, opacity=0.65),
+                  row=4, col=1)
+
+    fig.update_layout(
+        showlegend=False,
+        margin=dict(l=10, r=10, t=50, b=40),
+        height=600,
+        xaxis4_title="Date",
+        yaxis1_title=val_col,
+        yaxis2_title="Trend",
+        yaxis3_title="Seasonal",
+        yaxis4_title="Residual",
+    )
+    return fig
+
+
 class ForecastChart(BaseVisualization):
     name: ClassVar[str] = "Forecast"
     description: ClassVar[str] = "Fit a trend to historical data and project it forward with a confidence band."
@@ -102,14 +194,19 @@ class ForecastChart(BaseVisualization):
 
     def assumptions(self) -> list[AssumptionSpec]:
         return [
+            AssumptionSpec("view_mode",        "selectbox",   "View mode",           "Forecast",
+                           {"choices": ["Forecast", "Decompose"]},               category="Data"),
             AssumptionSpec("trend_type",       "selectbox",   "Trend type",          "Linear",
                            {"choices": ["Linear", "Polynomial", "Moving Avg"]}, category="Data"),
             AssumptionSpec("forecast_periods", "slider",      "Forecast periods",    12,
-                           {"min": 1, "max": 60, "step": 1},                  category="Data"),
+                           {"min": 1, "max": 60, "step": 1},                    category="Data"),
             AssumptionSpec("confidence_pct",   "slider",      "Confidence %",        95,
-                           {"min": 50, "max": 99, "step": 5},                 category="Data"),
+                           {"min": 50, "max": 99, "step": 5},                   category="Data"),
             AssumptionSpec("ma_window",        "slider",      "Moving avg window",   7,
-                           {"min": 2, "max": 52, "step": 1},                  category="Data"),
+                           {"min": 2, "max": 52, "step": 1},                    category="Data"),
+            AssumptionSpec("season_period",    "selectbox",   "Season period",       "Auto",
+                           {"choices": ["Auto", "4 (Quarterly)", "7 (Weekly)",
+                                        "12 (Monthly)", "52 (Weekly/year)"]},   category="Data"),
         ]
 
     def build(self, df: pd.DataFrame, columns: dict[str, str | None], params: dict[str, Any]) -> BuildResult:
@@ -135,6 +232,12 @@ class ForecastChart(BaseVisualization):
         gaps   = np.diff(x_ord)
         period = float(np.median(gaps)) if len(gaps) else 1.0
 
+        view_mode = params.get("view_mode", "Forecast")
+
+        if view_mode == "Decompose":
+            return self._build_decompose(dates, y, x_ord, gaps, params, val_col, date_col, warnings)
+
+        # ── Forecast mode ──────────────────────────────────────────────────────
         n_fore    = int(params["forecast_periods"])
         z         = _z(float(params["confidence_pct"]))
         trend     = params["trend_type"]
@@ -160,7 +263,6 @@ class ForecastChart(BaseVisualization):
             line=dict(color="rgba(0,0,0,0)"),
             name=f"{ci_label} (fit)", showlegend=True,
         ))
-
         fig.add_trace(go.Scatter(
             x=future_dates + future_dates[::-1],
             y=list(hi_f) + list(lo_f[::-1]),
@@ -168,19 +270,16 @@ class ForecastChart(BaseVisualization):
             line=dict(color="rgba(0,0,0,0)"),
             name=f"{ci_label} (forecast)", showlegend=True,
         ))
-
         fig.add_trace(go.Scatter(
             x=hist_dates, y=y_fit,
             mode="lines", name=f"{trend} fit",
             line=dict(color="rgb(99,110,250)", width=2),
         ))
-
         fig.add_trace(go.Scatter(
             x=future_dates, y=y_fore,
             mode="lines", name="Forecast",
             line=dict(color="rgb(239,85,59)", width=2, dash="dash"),
         ))
-
         fig.add_trace(go.Scatter(
             x=hist_dates, y=y,
             mode="markers", name=val_col,
@@ -193,16 +292,54 @@ class ForecastChart(BaseVisualization):
             annotation_text="  forecast →",
             annotation_position="top right",
         )
-
         fig.update_layout(
             template="plotly_white",
             xaxis_title=date_col,
             yaxis_title=val_col,
             legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
         )
-
         warnings.append(
             f"{trend} trend · {n_fore} periods forward · {period:.0f}-day interval · {ci_label}"
+        )
+        return BuildResult(figure=fig, warnings=warnings)
+
+    def _build_decompose(
+        self,
+        dates: np.ndarray,
+        y: np.ndarray,
+        x_ord: np.ndarray,
+        gaps: np.ndarray,
+        params: dict[str, Any],
+        val_col: str,
+        date_col: str,
+        warnings: list[str],
+    ) -> BuildResult:
+        season_str = params.get("season_period", "Auto")
+        if season_str == "Auto":
+            period = _auto_period(gaps) if len(gaps) else 12
+            warnings.append(f"Auto-detected season period: {period}")
+        else:
+            period = int(season_str.split()[0])
+
+        if len(y) < period * 2:
+            return BuildResult(
+                figure=go.Figure(),
+                warnings=[f"Need at least {period * 2} data points to decompose with period={period}."],
+            )
+
+        trend_arr, seasonal_arr, residual_arr = _classical_decompose(y, period)
+        hist_dates = _from_ordinal(x_ord)
+
+        std_resid = float(np.nanstd(residual_arr))
+        std_y     = float(np.std(y)) or 1.0
+        noise_pct = 100 * std_resid / std_y
+        warnings.append(
+            f"Additive decomposition · period={period} · "
+            f"residual noise = {noise_pct:.1f}% of signal std"
+        )
+
+        fig = _build_decomposition_fig(
+            hist_dates, y, trend_arr, seasonal_arr, residual_arr, val_col, period
         )
         return BuildResult(figure=fig, warnings=warnings)
 
