@@ -22,11 +22,11 @@ class GanttChart:
 
     def assumptions(self) -> list[AssumptionSpec]:
         return [
-            AssumptionSpec(key="sort_by",     label="Sort tasks by",  type="select",
-                           options=["Start", "End", "Task", "Duration"], default="Start"),
-            AssumptionSpec(key="show_today",  label="Show today line", type="bool",   default=True),
-            AssumptionSpec(key="row_height",  label="Row height (px)", type="int",
-                           min=20, max=60, default=32),
+            AssumptionSpec("sort_by",    "selectbox", "Sort tasks by",   "Start",
+                           {"choices": ["Start", "End", "Task", "Duration"]}),
+            AssumptionSpec("show_today", "toggle",    "Show today line",  True),
+            AssumptionSpec("row_height", "slider",    "Row height (px)",  32,
+                           {"min": 20, "max": 60, "step": 1}),
         ]
 
     def compatible(self, df: pd.DataFrame) -> tuple[bool, str]:
