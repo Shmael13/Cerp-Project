@@ -12,36 +12,38 @@ _DOW_LABELS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
 _AGG_FUNCS   = {"Sum": "sum", "Mean": "mean", "Count": "count", "Max": "max"}
 
 
-def _build_calendar_matrix(daily: pd.DataFrame, year: int) -> tuple[np.ndarray, list[str]]:
+def _build_calendar_matrix(
+    daily: pd.DataFrame, year: int
+) -> tuple[np.ndarray, np.ndarray, list[str]]:
     jan1 = pd.Timestamp(year=year, month=1, day=1)
     dec31 = pd.Timestamp(year=year, month=12, day=31)
 
-    # Fill full year grid so weeks align properly
     full_range = pd.date_range(jan1, dec31, freq="D")
-    grid = pd.Series(index=full_range, dtype=float)
+    grid = pd.Series(np.nan, index=full_range, dtype=float)
     for _, row in daily.iterrows():
         d = row["date"]
         if d in grid.index:
             grid[d] = row["value"]
 
     start_dow = jan1.dayofweek  # 0=Mon
-    total_days = len(full_range) + start_dow
-    n_weeks = (total_days + 6) // 7
+    n_weeks = (len(full_range) + start_dow + 6) // 7
 
-    matrix = np.full((7, n_weeks), np.nan)
+    matrix      = np.full((7, n_weeks), np.nan)
+    date_labels = np.full((7, n_weeks), "", dtype=object)
+
     for i, date in enumerate(full_range):
         col = (i + start_dow) // 7
         row = date.dayofweek
-        matrix[row, col] = grid[date]
+        matrix[row, col]      = grid[date]
+        date_labels[row, col] = date.strftime("%b %d, %Y")
 
-    # Month tick labels at first week of each month
     week_labels = [""] * n_weeks
     for date in full_range:
         if date.day == 1:
             week_col = (date.dayofyear - 1 + start_dow) // 7
             week_labels[week_col] = date.strftime("%b")
 
-    return matrix, week_labels
+    return matrix, date_labels, week_labels
 
 
 class CalendarHeatmap(BaseVisualization):
@@ -94,7 +96,9 @@ class CalendarHeatmap(BaseVisualization):
         if year_param != 0 and year_param not in years:
             warnings.append(f"Year {year_param} not in data — showing {year} instead.")
 
-        matrix, week_labels = _build_calendar_matrix(daily[daily["date"].dt.year == year], year)
+        matrix, date_labels, week_labels = _build_calendar_matrix(
+            daily[daily["date"].dt.year == year], year
+        )
 
         fig = go.Figure(go.Heatmap(
             z=matrix,
@@ -105,8 +109,8 @@ class CalendarHeatmap(BaseVisualization):
             hoverongaps=False,
             xgap=2,
             ygap=2,
-            customdata=matrix,
-            hovertemplate="%{y}<br>Week %{x}<br>Value: %{z:.2f}<extra></extra>",
+            customdata=date_labels,
+            hovertemplate="%{customdata}<br>Value: %{z:.2f}<extra></extra>",
         ))
 
         fig.update_layout(

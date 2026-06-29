@@ -118,7 +118,6 @@ def render_compare_panel(
         )
         if btn_col.button("💾 Save", use_container_width=True, key="cmp_quick_save"):
             name = save_name.strip() or f"Scenario {saved + 1}"
-            from cerp_viz.ui.assumption_panel import render as _render_assumptions  # noqa: F401
             current_params = st.session_state.get("_last_params", {})
             if current_params:
                 store.save(name, current_params)

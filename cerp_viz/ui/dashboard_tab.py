@@ -3,16 +3,24 @@ Dashboard tab — renders a configurable grid of charts from DashboardConfig.
 Each slot gets its own expander for inline re-configuration.
 """
 from __future__ import annotations
+import copy
+import json
 from typing import Any
 
+import pandas as pd
 import streamlit as st
 
 from cerp_viz.core.dashboard import DashboardConfig, SlotConfig
+from cerp_viz.core.models import BuildResult
 from cerp_viz.core.registry import registry
 from cerp_viz.core.theme import Theme, apply_theme
 from cerp_viz.renderers.streamlit_renderer import StreamlitRenderer
 
-import pandas as pd
+
+@st.cache_data(show_spinner=False, max_entries=30)
+def _cached_slot_build(chart_name: str, df: pd.DataFrame, col_json: str, param_json: str) -> BuildResult:
+    viz = registry.get(chart_name)()
+    return viz.build(df, json.loads(col_json), json.loads(param_json))
 
 _LAYOUTS = {
     "1 column":  1,
@@ -61,17 +69,19 @@ def render_dashboard(
                     if header_r.button("✕", key=f"dash_remove_{idx}", help="Remove this chart"):
                         to_remove = idx
 
-                    # Render the chart
+                    # Render the chart (cached per chart_name + df + columns + params)
                     try:
-                        viz    = registry.get(slot.chart_name)()
-                        result = viz.build(df, slot.columns, slot.params)
-                        apply_theme(result.figure, theme)
-                        result.figure.update_layout(
+                        col_json   = json.dumps(slot.columns,  sort_keys=True, default=str)
+                        param_json = json.dumps(slot.params,   sort_keys=True, default=str)
+                        result     = _cached_slot_build(slot.chart_name, df, col_json, param_json)
+                        fig        = copy.deepcopy(result.figure)
+                        apply_theme(fig, theme)
+                        fig.update_layout(
                             height=320,
                             margin=dict(t=30, b=30, l=30, r=30),
                             showlegend=True,
                         )
-                        StreamlitRenderer().render(result.figure)
+                        StreamlitRenderer().render(fig)
                         if result.warnings:
                             with st.expander("⚠️ Warnings", expanded=False):
                                 for w in result.warnings:

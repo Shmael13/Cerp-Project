@@ -253,7 +253,7 @@ class ChordDiagram(BaseVisualization):
             annotations=_label_annotations(nodes, node_arcs),
             xaxis=dict(range=[-1.55, 1.55], showgrid=False, zeroline=False, showticklabels=False),
             yaxis=dict(range=[-1.55, 1.55], showgrid=False, zeroline=False, showticklabels=False,
-                       scaleanchor="x"),
+                       scaleanchor="x", scaleratio=1),
             hovermode="closest",
             margin=dict(l=20, r=20, t=40, b=20),
             legend=dict(orientation="v", x=1.02, y=0.5),

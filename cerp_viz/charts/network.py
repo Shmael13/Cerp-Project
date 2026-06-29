@@ -48,6 +48,7 @@ def _build_graph_data(
     warnings: list[str] = []
 
     if len(all_nodes) > max_nodes:
+        total_node_count = len(all_nodes)
         top = (
             agg.groupby(source_col)[weight_col].sum()
             .nlargest(max_nodes)
@@ -55,7 +56,7 @@ def _build_graph_data(
         )
         agg = agg[agg[source_col].isin(top) & agg[target_col].isin(top)]
         all_nodes = sorted(set(agg[source_col]) | set(agg[target_col]))
-        warnings.append(f"Showing top {max_nodes} nodes by total weight (from {len(all_nodes)} total).")
+        warnings.append(f"Showing top {max_nodes} of {total_node_count} nodes by total weight.")
 
     edge_weights = {
         (row[source_col], row[target_col]): float(row[weight_col])

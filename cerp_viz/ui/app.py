@@ -24,14 +24,17 @@ from cerp_viz.core.transform import apply_transforms
 
 @st.cache_data(show_spinner=False)
 def _cached_compatibility(df) -> dict:
-    """Compatibility check cached per DataFrame — never re-runs on sidebar interactions."""
     return compatible_visualizations(df)
 
 
 @st.cache_data(show_spinner="Analysing your data for suggestions…")
 def _cached_suggestions(df, suggester_name: str) -> list[SuggestionResult]:
-    """Chart suggestions cached per (DataFrame, suggester) — recomputes only when either changes."""
     return suggester_registry.get(suggester_name).suggest(df)
+
+
+@st.cache_data(show_spinner=False)
+def _cached_transforms(df, transform_cfg):
+    return apply_transforms(df, transform_cfg)
 
 
 def main() -> None:
@@ -78,7 +81,7 @@ def main() -> None:
     # ── Data transforms (filters, derived cols, date parts) ───────────────────
     st.sidebar.divider()
     transform_cfg = render_transform_panel(raw_df)
-    df, transform_warnings = apply_transforms(raw_df, transform_cfg)
+    df, transform_warnings = _cached_transforms(raw_df, transform_cfg)
 
     # ── Compatibility check (cached) ──────────────────────────────────────────
     compat      = _cached_compatibility(df)
@@ -130,6 +133,7 @@ def main() -> None:
             st.session_state["build_result"] = result
             st.session_state["figure_error"] = None
             st.session_state["_last_params"]  = dict(params)
+            _precompute_exports(result.figure)
         except Exception as exc:
             st.session_state["build_result"] = None
             st.session_state["figure_error"] = str(exc)
@@ -201,25 +205,34 @@ def main() -> None:
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
+def _precompute_exports(figure) -> None:
+    """Generate PNG and SVG bytes once when Apply is clicked; skip if kaleido absent."""
+    from cerp_viz.renderers.image_renderer import ImageRenderer
+    for fmt, key in [("png", "_export_png"), ("svg", "_export_svg")]:
+        try:
+            st.session_state[key] = ImageRenderer(fmt=fmt).to_bytes(figure)
+        except Exception:
+            st.session_state[key] = None
+
+
 def _render_export_buttons(st, build_result) -> None:
-    """PNG / SVG download buttons below the chart."""
-    try:
-        from cerp_viz.renderers.image_renderer import ImageRenderer
-        c1, c2, _ = st.columns([1, 1, 4])
-        for col, fmt, label in [(c1, "png", "⬇️ PNG"), (c2, "svg", "⬇️ SVG")]:
-            try:
-                img_bytes = ImageRenderer(fmt=fmt).to_bytes(build_result.figure)
-                col.download_button(
-                    label=label,
-                    data=img_bytes,
-                    file_name=f"cerp_chart.{fmt}",
-                    mime=f"image/{fmt}",
-                    key=f"export_{fmt}",
-                )
-            except ImportError:
-                col.caption(f"_{fmt.upper()} export needs `pip install kaleido`_")
-    except Exception:
-        pass
+    """PNG / SVG download buttons — bytes are pre-computed at Apply time, not on every rerun."""
+    c1, c2, _ = st.columns([1, 1, 4])
+    for col, fmt, label, key in [
+        (c1, "png", "⬇️ PNG", "_export_png"),
+        (c2, "svg", "⬇️ SVG", "_export_svg"),
+    ]:
+        data = st.session_state.get(key)
+        if data is not None:
+            col.download_button(
+                label=label,
+                data=data,
+                file_name=f"cerp_chart.{fmt}",
+                mime=f"image/{fmt}",
+                key=f"export_{fmt}",
+            )
+        else:
+            col.caption(f"_{fmt.upper()} needs `pip install kaleido`_")
 
 
 def _render_suggestions_tab(

@@ -1,11 +1,30 @@
 from __future__ import annotations
 
+import re as _re
 from dataclasses import dataclass
 
 import pandas as pd
 
 from cerp_viz.core.models import ColumnSpec
 from cerp_viz.core.registry import registry
+
+_DATE_HINTS = _re.compile(r"date|time|year|month|quarter|week|period|day", _re.I)
+
+
+def _count_datetime_cols(df: pd.DataFrame) -> int:
+    """Count native datetime columns + object columns whose values parse as dates."""
+    count = len(df.select_dtypes(include=["datetime", "datetimetz"]).columns)
+    for col in df.select_dtypes(include="object").columns:
+        if _DATE_HINTS.search(col):
+            sample = df[col].dropna().head(5)
+            if len(sample) == 0:
+                continue
+            try:
+                pd.to_datetime(sample, errors="raise")
+                count += 1
+            except Exception:
+                pass
+    return count
 
 
 @dataclass
@@ -22,7 +41,7 @@ def check(df: pd.DataFrame, column_specs: list[ColumnSpec]) -> CompatibilityResu
     available: dict[str, int] = {
         "numeric":     len(df.select_dtypes(include="number").columns),
         "categorical": len(df.select_dtypes(exclude="number").columns),
-        "datetime":    len(df.select_dtypes(include=["datetime", "datetimetz"]).columns),
+        "datetime":    _count_datetime_cols(df),
         "any":         len(df.columns),
     }
 

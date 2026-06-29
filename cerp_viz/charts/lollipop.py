@@ -177,16 +177,25 @@ class LollipopChart(BaseVisualization):
                               annotation_position="top right")
 
         cat_order = work[x_col].unique().tolist()
+        n_cats = work[x_col].nunique()
         if orient == "v":
             fig.update_layout(
-                xaxis=dict(categoryorder="array", categoryarray=cat_order,
-                           title=x_col),
+                xaxis=dict(
+                    categoryorder="array", categoryarray=cat_order,
+                    title=x_col,
+                    tickangle=-45 if n_cats > 12 else 0,
+                ),
                 yaxis=dict(title=f"{agg}({y_col})"),
             )
         else:
+            # Plotly y-axis runs bottom→top; reverse the order so
+            # the first (highest-ranked) category sits at the top.
+            h_cat_order = list(reversed(cat_order))
             fig.update_layout(
-                yaxis=dict(categoryorder="array", categoryarray=cat_order,
-                           title=x_col),
+                yaxis=dict(
+                    categoryorder="array", categoryarray=h_cat_order,
+                    title=x_col,
+                ),
                 xaxis=dict(title=f"{agg}({y_col})"),
             )
 
@@ -195,7 +204,6 @@ class LollipopChart(BaseVisualization):
             title=f"{agg.capitalize()} of {y_col} by {x_col}",
         )
 
-        n_cats = work[x_col].nunique()
         if n_cats > 30:
             warnings.append(f"{n_cats} categories — consider Top N to reduce clutter.")
         return BuildResult(figure=fig, warnings=warnings)
