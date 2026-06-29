@@ -10,6 +10,7 @@ from cerp_viz.charts import correlation
 from cerp_viz.charts import scatter_matrix
 from cerp_viz.charts import strip_plot
 from cerp_viz.charts import density_heatmap
+from cerp_viz.charts import marginal_scatter
 
 __all__ = [
     "bar", "line", "waterfall", "heatmap", "scatter", "sankey",
@@ -24,4 +25,5 @@ __all__ = [
     "scatter_matrix",
     "strip_plot",
     "density_heatmap",
+    "marginal_scatter",
 ]

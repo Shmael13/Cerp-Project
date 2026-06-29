@@ -437,6 +437,14 @@ _QUERY_CHART_ALIASES: dict[str, str] = {
     "hexbin":                 "Density Heatmap",
     "2d histogram":           "Density Heatmap",
     "2d heatmap":             "Density Heatmap",
+    "marginal":               "Marginal Scatter",
+    "marginal scatter":       "Marginal Scatter",
+    "scatter with margins":   "Marginal Scatter",
+    "bivariate":              "Marginal Scatter",
+    "bivariate distribution": "Marginal Scatter",
+    "margin plot":            "Marginal Scatter",
+    "joint plot":             "Marginal Scatter",
+    "jointplot":              "Marginal Scatter",
 }
 
 

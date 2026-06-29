@@ -575,6 +575,29 @@ def _density_heatmap_rb(df: pd.DataFrame) -> SuggestionResult | None:
     )
 
 
+def _marginal_scatter_rb(df: pd.DataFrame) -> SuggestionResult | None:
+    nums = numeric_cols(df)
+    if len(nums) < 2:
+        return None
+    cats = categorical_cols(df)
+    size_col  = nums[2] if len(nums) > 2 else None
+    color_col = cats[0]  if cats          else None
+    return SuggestionResult(
+        chart_name="Marginal Scatter",
+        columns=complete_columns("Marginal Scatter",
+                                 x=nums[0], y=nums[1],
+                                 color=color_col, size=size_col),
+        params={**default_params("Marginal Scatter")},
+        title=f"{nums[1]} vs {nums[0]} with distributions",
+        rationale=(
+            f"Scatter of {nums[0]} × {nums[1]} with histogram and box marginals — "
+            f"shows bivariate correlation and each variable's distribution in one chart."
+        ),
+        score=0.62 + 0.15 * min(1.0, len(nums) / 5),
+        transforms=suggest_outlier_filter(df, nums[0]) + suggest_outlier_filter(df, nums[1]),
+    )
+
+
 _BUILDERS = [_bar, _line, _scatter, _heatmap, _waterfall,
              _distribution, _tornado, _funnel, _sankey,
              _area, _pie, _treemap, _kpi, _bullet,
@@ -582,7 +605,7 @@ _BUILDERS = [_bar, _line, _scatter, _heatmap, _waterfall,
              _calendar_heatmap, _forecast,
              _network_graph, _chord_diagram,
              _correlation_matrix_rb, _scatter_matrix_rb,
-             _density_heatmap_rb]
+             _density_heatmap_rb, _marginal_scatter_rb]
 
 
 # ── Suggester class ───────────────────────────────────────────────────────────

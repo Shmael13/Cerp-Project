@@ -763,6 +763,55 @@ def _density_large(df: pd.DataFrame) -> SuggestionResult | None:
     )
 
 
+# ── N+10. Bivariate distribution → Marginal Scatter ─────────────────────────
+
+def _marginal_scatter_stats(df: pd.DataFrame) -> SuggestionResult | None:
+    nums = numeric_cols(df)
+    if len(nums) < 2:
+        return None
+
+    best_x, best_y, best_r = None, None, 0.0
+    for i in range(len(nums)):
+        for j in range(i + 1, len(nums)):
+            r = abs(pearson_r(df, nums[i], nums[j]))
+            if r > best_r:
+                best_r, best_x, best_y = r, nums[i], nums[j]
+
+    if best_x is None:
+        return None
+
+    cats     = categorical_cols(df)
+    size_col = next((n for n in nums if n not in (best_x, best_y)), None)
+    n_rows   = len(df)
+    sample_n = min(2000, n_rows) if n_rows > 2000 else 0
+
+    skew_x = abs(float(df[best_x].dropna().skew())) if len(df[best_x].dropna()) >= 3 else 0
+    skew_y = abs(float(df[best_y].dropna().skew())) if len(df[best_y].dropna()) >= 3 else 0
+
+    marginal_x = "histogram" if skew_x < 1.5 else "violin"
+    marginal_y = "box"       if skew_y < 1.5 else "violin"
+
+    score = min(0.88, 0.55 + 0.35 * best_r + 0.05 * (skew_x > 1) + 0.05 * (skew_y > 1))
+    return SuggestionResult(
+        chart_name="Marginal Scatter",
+        columns=complete_columns("Marginal Scatter",
+                                 x=best_x, y=best_y,
+                                 color=cats[0] if cats else None,
+                                 size=size_col),
+        params={**default_params("Marginal Scatter"),
+                "marginal_x": marginal_x, "marginal_y": marginal_y,
+                "sample_n": sample_n},
+        title=f"{best_y} vs {best_x} with margins  (|r|={best_r:.2f})",
+        rationale=(
+            f"|r|={best_r:.2f} between {best_x} and {best_y}. "
+            f"Marginal scatter shows the scatter plus {marginal_x}/{marginal_y} distributions on both axes, "
+            f"revealing whether the relationship is driven by distributional shape."
+        ),
+        score=score,
+        transforms=suggest_outlier_filter(df, best_x) + suggest_outlier_filter(df, best_y),
+    )
+
+
 _ANALYSES = [
     _correlation_scatter,
     _trend_line,
@@ -783,6 +832,7 @@ _ANALYSES = [
     _network_pairs,
     _chord_flow,
     _density_large,
+    _marginal_scatter_stats,
 ]
 
 
