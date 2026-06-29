@@ -52,6 +52,11 @@ def main() -> None:
         _consume_pending_transforms(st.session_state.pop("_pending_transforms"))
 
     st.set_page_config(page_title="CERP Visualizer", layout="wide", page_icon="📊")
+
+    # Inject design system CSS
+    from cerp_viz.ui.styles import inject_styles
+    inject_styles()
+
     st.title("📊 CERP Data Visualizer")
     st.caption("Upload a spreadsheet, configure your chart in the sidebar, then click **▶ Apply**.")
 
@@ -71,7 +76,11 @@ def main() -> None:
         render_welcome()
         st.stop()
 
+    st.session_state["_all_sheets"] = sheets
+    st.session_state["_current_sheet_name"] = sheet_name
+
     raw_df = sheets[sheet_name]
+    st.session_state["_all_sheets"] = sheets   # used by compare + data tab
 
     # ── Multi-file join (optional, overrides raw_df when active) ─────────────
     st.sidebar.divider()
@@ -82,6 +91,11 @@ def main() -> None:
     st.sidebar.divider()
     transform_cfg = render_transform_panel(raw_df)
     df, transform_warnings = _cached_transforms(raw_df, transform_cfg)
+
+    # ── Apply user in-place edits made in the Data tab ───────────────────────
+    edited_df = st.session_state.get("user_edited_df")
+    if edited_df is not None and list(edited_df.columns) == list(df.columns):
+        df = edited_df
 
     # ── Compatibility check (cached) ──────────────────────────────────────────
     compat      = _cached_compatibility(df)
@@ -113,7 +127,7 @@ def main() -> None:
 
     # ── Assumptions ───────────────────────────────────────────────────────────
     st.sidebar.divider()
-    params = assumption_panel.render(viz.assumptions())
+    params = assumption_panel.render(viz.assumptions(), df=df)
 
     # ── Theme selector ────────────────────────────────────────────────────────
     st.sidebar.divider()
@@ -140,7 +154,7 @@ def main() -> None:
 
     # ── Scenario panel ────────────────────────────────────────────────────────
     st.sidebar.divider()
-    scenario_panel.render(store, params)
+    scenario_panel.render(store, params, sheet_name=sheet_name, col_mapping=col_mapping)
 
     # ── Config import / export ────────────────────────────────────────────────
     st.sidebar.divider()
@@ -187,7 +201,8 @@ def main() -> None:
 
     # ── Tab 3 (slot 2): Scenario comparison ──────────────────────────────────
     with tab_compare:
-        render_compare_panel(df, viz, col_mapping, store, theme)
+        all_sheets = st.session_state.get("_all_sheets", {sheet_name: df})
+        render_compare_panel(df, viz, col_mapping, store, theme, sheets=all_sheets)
 
     # ── Tab 4: What-If Simulator ──────────────────────────────────────────────
     with tab_whatif:
@@ -200,7 +215,7 @@ def main() -> None:
 
     # ── Tab 6: Data ───────────────────────────────────────────────────────────
     with tab_data:
-        render_data_tab(df, sheet_name, build_result)
+        render_data_tab(df, sheet_name, build_result, sheets=sheets)
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────

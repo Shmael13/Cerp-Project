@@ -1,15 +1,17 @@
 from typing import Any
 
+import pandas as pd
 import streamlit as st
 
 from cerp_viz.core.models import AssumptionSpec
 
 
-def render(specs: list[AssumptionSpec]) -> dict[str, Any]:
+def render(specs: list[AssumptionSpec], df: pd.DataFrame | None = None) -> dict[str, Any]:
     """
     Groups AssumptionSpecs by category, renders the correct Streamlit widget
     for each, and returns a flat dict of key → current value.
     Always appends universal title/subtitle fields at the bottom.
+    Pass `df` to enable `column_picker` widgets that populate from df.columns.
     """
     params: dict[str, Any] = {}
 
@@ -20,7 +22,7 @@ def render(specs: list[AssumptionSpec]) -> dict[str, Any]:
     for category, items in categories.items():
         st.sidebar.markdown(f"**── {category} ──**")
         for spec in items:
-            params[spec.key] = _render_widget(spec)
+            params[spec.key] = _render_widget(spec, df)
 
     # Universal title / subtitle — appended after chart-specific assumptions
     st.sidebar.markdown("**── Labels ──**")
@@ -60,7 +62,7 @@ def apply_title_subtitle(figure: Any, params: dict[str, Any]) -> Any:
     return figure
 
 
-def _render_widget(spec: AssumptionSpec) -> Any:
+def _render_widget(spec: AssumptionSpec, df: pd.DataFrame | None = None) -> Any:
     opts = spec.options
     key  = f"assumption_{spec.key}"
 
@@ -99,5 +101,28 @@ def _render_widget(spec: AssumptionSpec) -> Any:
 
     if spec.widget == "toggle":
         return st.sidebar.toggle(spec.label, value=spec.default, key=key)
+
+    if spec.widget == "column_picker":
+        # Dynamically populated from df columns at render time
+        dtype_hint = opts.get("dtype", "any")
+        if df is not None:
+            if dtype_hint == "numeric":
+                cols = [c for c in df.columns if pd.api.types.is_numeric_dtype(df[c])]
+            elif dtype_hint == "datetime":
+                cols = [c for c in df.columns
+                        if pd.api.types.is_datetime64_any_dtype(df[c])]
+            elif dtype_hint == "categorical":
+                cols = [c for c in df.columns
+                        if not pd.api.types.is_numeric_dtype(df[c])
+                        and not pd.api.types.is_datetime64_any_dtype(df[c])]
+            else:
+                cols = list(df.columns)
+        else:
+            cols = []
+        choices = ["(none)"] + cols
+        current = st.session_state.get(key, spec.default)
+        idx = choices.index(current) if current in choices else 0
+        chosen = st.sidebar.selectbox(spec.label, choices, index=idx, key=key)
+        return None if chosen == "(none)" else chosen
 
     return spec.default

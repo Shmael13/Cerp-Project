@@ -30,11 +30,18 @@ def overlay_scenarios(
     df: "pd.DataFrame",
     columns: dict[str, str | None],
     scenarios: dict[str, dict[str, Any]],
+    per_scenario_dfs: "dict[str, pd.DataFrame] | None" = None,
+    per_scenario_columns: "dict[str, dict[str, str | None]] | None" = None,
 ) -> BuildResult:
     """
     Call viz.build() for each scenario, deepcopy the resulting traces, tag them
     with the scenario name, tint them with a per-scenario colour, and combine
     into one figure.  Works for any chart type whose traces can be overlaid.
+
+    When per_scenario_dfs is provided, each scenario is built against its own
+    DataFrame (enabling cross-sheet comparison).  When per_scenario_columns is
+    provided, each scenario uses its own column mapping (needed when column names
+    differ across sheets).
     """
     combined: go.Figure = go.Figure()
     all_warnings: list[str] = []
@@ -42,7 +49,9 @@ def overlay_scenarios(
     has_histogram = False
 
     for i, (scenario_name, params) in enumerate(scenarios.items()):
-        result = viz.build(df, columns, params)
+        scenario_df = per_scenario_dfs.get(scenario_name, df) if per_scenario_dfs else df
+        scenario_cols = per_scenario_columns.get(scenario_name, columns) if per_scenario_columns else columns
+        result = viz.build(scenario_df, scenario_cols, params)
         color = _PALETTE[i % len(_PALETTE)]
 
         first = True

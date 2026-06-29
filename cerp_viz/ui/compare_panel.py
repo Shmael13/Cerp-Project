@@ -6,9 +6,16 @@ from typing import Any
 import pandas as pd
 import streamlit as st
 
-from cerp_viz.core.scenarios import ScenarioStore
+from cerp_viz.core.scenarios import Scenario, ScenarioStore
 from cerp_viz.core.theme import apply_theme
 from cerp_viz.renderers.streamlit_renderer import StreamlitRenderer
+
+
+def _resolve_df(sc: Scenario, df: pd.DataFrame, sheets: dict | None) -> pd.DataFrame:
+    """Return the DataFrame the scenario was saved against, falling back to df."""
+    if sc.sheet_name and sheets and sc.sheet_name in sheets:
+        return sheets[sc.sheet_name]
+    return df
 
 
 def _to_csv_bytes(df: pd.DataFrame) -> bytes:
@@ -47,7 +54,18 @@ def _render_scenario_table(store: ScenarioStore, assumption_specs) -> None:
     for s in scenarios.values():
         all_keys.update(s.params.keys())
 
+    # Dataset row first if any scenario has a non-empty sheet_name
+    sheet_names = {n: (scenarios[n].sheet_name or "current") for n in names}
+    has_dataset_diff = len(set(sheet_names.values())) > 1
+
     rows_all, rows_diff = [], []
+
+    if has_dataset_diff or any(s.sheet_name for s in scenarios.values()):
+        dataset_row = {"Parameter": "Dataset", **sheet_names}
+        rows_all.append(dataset_row)
+        if has_dataset_diff:
+            rows_diff.append(dataset_row)
+
     for key in sorted(all_keys):
         values = {n: scenarios[n].params.get(key, "—") for n in names}
         row = {"Parameter": label_map.get(key, key), **values}
@@ -64,7 +82,7 @@ def _render_scenario_table(store: ScenarioStore, assumption_specs) -> None:
                 use_container_width=True,
             )
         else:
-            st.info("Scenarios are identical — modify Data assumptions and save under a new name.")
+            st.info("Scenarios are identical — modify assumptions or dataset and save under a new name.")
 
     with full_tab:
         if rows_all:
@@ -89,6 +107,7 @@ def render_compare_panel(
     col_mapping: dict,
     store: ScenarioStore,
     theme,
+    sheets: dict | None = None,
 ) -> None:
     st.subheader("⚖️ Compare Scenarios")
 
@@ -120,7 +139,12 @@ def render_compare_panel(
             name = save_name.strip() or f"Scenario {saved + 1}"
             current_params = st.session_state.get("_last_params", {})
             if current_params:
-                store.save(name, current_params)
+                store.save(
+                    name,
+                    current_params,
+                    sheet_name=st.session_state.get("_current_sheet_name", ""),
+                    col_mapping=col_mapping,
+                )
                 st.success(f"Saved **{name}**")
                 st.rerun()
             else:
@@ -158,8 +182,19 @@ def render_compare_panel(
     st.divider()
     if st.button("▶  Run Comparison", type="primary", use_container_width=False, key="cmp_run"):
         try:
-            scenarios = {n: s.params for n, s in store.all().items()}
-            result = viz.compare(df, col_mapping, scenarios)
+            from cerp_viz.charts.compare_utils import overlay_scenarios as _overlay
+            all_scenarios = store.all()
+            scenarios = {n: s.params for n, s in all_scenarios.items()}
+            per_scenario_dfs = {n: _resolve_df(s, df, sheets) for n, s in all_scenarios.items()}
+            per_scenario_cols = {
+                n: (s.col_mapping if s.col_mapping else col_mapping)
+                for n, s in all_scenarios.items()
+            }
+            result = _overlay(
+                viz, df, col_mapping, scenarios,
+                per_scenario_dfs=per_scenario_dfs,
+                per_scenario_columns=per_scenario_cols,
+            )
             apply_theme(result.figure, theme)
             st.session_state["compare_result"] = result
             st.session_state["compare_error"]  = None

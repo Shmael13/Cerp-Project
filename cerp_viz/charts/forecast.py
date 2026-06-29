@@ -194,31 +194,44 @@ class ForecastChart(BaseVisualization):
 
     def assumptions(self) -> list[AssumptionSpec]:
         return [
-            AssumptionSpec("view_mode",        "selectbox",   "View mode",           "Forecast",
+            AssumptionSpec("view_mode",        "selectbox",    "View mode",           "Forecast",
                            {"choices": ["Forecast", "Decompose"]},               category="Data"),
-            AssumptionSpec("trend_type",       "selectbox",   "Trend type",          "Linear",
+            AssumptionSpec("trend_type",       "selectbox",    "Trend type",          "Linear",
                            {"choices": ["Linear", "Polynomial", "Moving Avg"]}, category="Data"),
-            AssumptionSpec("forecast_periods", "slider",      "Forecast periods",    12,
+            AssumptionSpec("forecast_periods", "slider",       "Forecast periods",    12,
                            {"min": 1, "max": 60, "step": 1},                    category="Data"),
-            AssumptionSpec("confidence_pct",   "slider",      "Confidence %",        95,
+            AssumptionSpec("confidence_pct",   "slider",       "Confidence %",        95,
                            {"min": 50, "max": 99, "step": 5},                   category="Data"),
-            AssumptionSpec("ma_window",        "slider",      "Moving avg window",   7,
+            AssumptionSpec("ma_window",        "slider",       "Moving avg window",   7,
                            {"min": 2, "max": 52, "step": 1},                    category="Data"),
-            AssumptionSpec("season_period",    "selectbox",   "Season period",       "Auto",
+            AssumptionSpec("season_period",    "selectbox",    "Season period",       "Auto",
                            {"choices": ["Auto", "4 (Quarterly)", "7 (Weekly)",
                                         "12 (Monthly)", "52 (Weekly/year)"]},   category="Data"),
+            # Prior / baseline controls
+            AssumptionSpec("comparison_col",   "column_picker", "Actual / baseline column", "(none)",
+                           {"dtype": "numeric"},                                 category="Data"),
+            AssumptionSpec("anchor_to_last",   "toggle",       "Anchor forecast to last actual", False,
+                           {},                                                   category="Data"),
+            AssumptionSpec("prior_value",      "number_input", "Manual prior (anchor value)", 0.0,
+                           {"min": None, "max": None, "step": 1.0},             category="Data"),
         ]
 
     def build(self, df: pd.DataFrame, columns: dict[str, str | None], params: dict[str, Any]) -> BuildResult:
-        date_col = columns["date"]
-        val_col  = columns["value"]
+        date_col     = columns["date"]
+        val_col      = columns["value"]
+        comp_col     = params.get("comparison_col") or None   # "(none)" → None via column_picker
+        anchor_last  = bool(params.get("anchor_to_last", False))
+        prior_value  = float(params.get("prior_value", 0.0))
         warnings: list[str] = []
 
-        work = df[[date_col, val_col]].copy()
+        extra_cols = [c for c in [comp_col] if c and c in df.columns]
+        work = df[[date_col, val_col] + extra_cols].copy()
         work[date_col] = pd.to_datetime(work[date_col], errors="coerce")
         work[val_col]  = pd.to_numeric(work[val_col],  errors="coerce")
+        if comp_col and comp_col in work.columns:
+            work[comp_col] = pd.to_numeric(work[comp_col], errors="coerce")
         before = len(work)
-        work = work.dropna().sort_values(date_col).reset_index(drop=True)
+        work = work.dropna(subset=[date_col, val_col]).sort_values(date_col).reset_index(drop=True)
         dropped = before - len(work)
         if dropped:
             warnings.append(f"Dropped {dropped} row(s) with missing or unparseable values.")
@@ -243,11 +256,21 @@ class ForecastChart(BaseVisualization):
         trend     = params["trend_type"]
         ma_window = int(params["ma_window"])
 
-        x_fut_ord   = x_ord[-1] + np.arange(1, n_fore + 1) * period
-        hist_dates  = _from_ordinal(x_ord)
+        x_fut_ord    = x_ord[-1] + np.arange(1, n_fore + 1) * period
+        hist_dates   = _from_ordinal(x_ord)
         future_dates = _from_ordinal(x_fut_ord)
 
         y_fit, y_fore, residuals = _fit_and_forecast(x_ord, y, x_fut_ord, trend, ma_window)
+
+        # Apply anchor / prior
+        if anchor_last:
+            offset  = float(y[-1]) - float(y_fore[0])
+            y_fore  = y_fore + offset
+            warnings.append(f"Forecast anchored to last actual value ({y[-1]:,.2f}).")
+        elif prior_value != 0.0:
+            offset  = float(prior_value) - float(y_fore[0])
+            y_fore  = y_fore + offset
+            warnings.append(f"Forecast anchored to manual prior value ({prior_value:,.2f}).")
 
         ddof = 4 if trend == "Polynomial" else 2
         lo_h, hi_h = _prediction_interval(y_fit,  x_ord,     x_ord, residuals, z, ddof)
@@ -285,6 +308,17 @@ class ForecastChart(BaseVisualization):
             mode="markers", name=val_col,
             marker=dict(color="rgba(99,110,250,0.55)", size=5),
         ))
+
+        # Optional: overlay comparison / actual column
+        if comp_col and comp_col in work.columns:
+            comp_y = work[comp_col].values.astype(float)
+            fig.add_trace(go.Scatter(
+                x=hist_dates, y=comp_y,
+                mode="lines+markers", name=comp_col,
+                line=dict(color="rgb(0,180,100)", width=2),
+                marker=dict(size=4),
+            ))
+            warnings.append(f"Overlaying '{comp_col}' as actual / baseline.")
 
         fig.add_vline(
             x=hist_dates[-1].strftime("%Y-%m-%d"),
