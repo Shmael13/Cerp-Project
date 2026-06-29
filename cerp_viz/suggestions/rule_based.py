@@ -430,21 +430,29 @@ def _calendar_heatmap(df: pd.DataFrame) -> SuggestionResult | None:
     date_col = dt[0]
     try:
         parsed = pd.to_datetime(df[date_col], errors="coerce").dropna()
-        n_days = parsed.dt.date.nunique()
+        n_days  = parsed.dt.date.nunique()
+        n_years = parsed.dt.year.nunique()
         if n_days < 7:
             return None
     except Exception:
         return None
+
+    yoy = n_years >= 2
+    extra_params = {"view_mode": "Year-over-Year", "compare_n_years": min(n_years, 3)} if yoy else {}
+    rationale = (
+        f"Data spans {n_days} unique dates across {n_years} years — "
+        f"Year-over-Year calendar overlay reveals recurring seasonal patterns in {num}."
+        if yoy else
+        f"Data spans {n_days} unique dates — calendar heatmap reveals daily patterns, "
+        f"weekday/weekend cycles, and seasonal spikes in {num}."
+    )
     return SuggestionResult(
         chart_name="Calendar Heatmap",
         columns=complete_columns("Calendar Heatmap", date=date_col, value=num),
-        params={**default_params("Calendar Heatmap"), "aggregation": "Sum"},
-        title=f"{num} calendar",
-        rationale=(
-            f"Data spans {n_days} unique dates — calendar heatmap reveals daily patterns, "
-            f"weekday/weekend cycles, and seasonal spikes in {num}."
-        ),
-        score=0.72,
+        params={**default_params("Calendar Heatmap"), "aggregation": "Sum", **extra_params},
+        title=f"{num} calendar" + (" (YoY)" if yoy else ""),
+        rationale=rationale,
+        score=0.78 if yoy else 0.72,
         transforms=suggest_date_parts(df, date_col),
     )
 

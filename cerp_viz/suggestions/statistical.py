@@ -911,6 +911,50 @@ def _gantt_duration(df: pd.DataFrame) -> SuggestionResult | None:
     )
 
 
+def _calendar_heatmap_stat(df: pd.DataFrame) -> SuggestionResult | None:
+    dt   = datetime_cols(df)
+    nums = numeric_cols(df)
+    if not dt or not nums:
+        return None
+    date_col = dt[0]
+    try:
+        parsed  = pd.to_datetime(df[date_col], errors="coerce").dropna()
+        n_days  = parsed.dt.date.nunique()
+        n_years = parsed.dt.year.nunique()
+        if n_days < 14:
+            return None
+    except Exception:
+        return None
+
+    # Pick the numeric column with most variation in daily aggregates
+    best_num, best_cv = None, 0.0
+    for num in nums:
+        try:
+            daily_vals = df.groupby(parsed.dt.date)[num].sum()
+            cv = float(daily_vals.std() / (abs(daily_vals.mean()) + 1e-9))
+            if cv > best_cv:
+                best_cv, best_num = cv, num
+        except Exception:
+            pass
+    if best_num is None:
+        return None
+
+    yoy = n_years >= 2
+    extra = {"view_mode": "Year-over-Year", "compare_n_years": min(n_years, 3)} if yoy else {}
+    return SuggestionResult(
+        chart_name="Calendar Heatmap",
+        columns=complete_columns("Calendar Heatmap", date=date_col, value=best_num),
+        params={**default_params("Calendar Heatmap"), "aggregation": "Sum", **extra},
+        title=f"{best_num} calendar" + (" (YoY)" if yoy else ""),
+        rationale=(
+            f"Daily variation CV={best_cv:.2f} in {best_num} across {n_days} dates "
+            + (f"and {n_years} years — YoY overlay surfaces recurring seasonal patterns."
+               if yoy else "— calendar reveals day-of-week rhythms and seasonal spikes.")
+        ),
+        score=min(0.85, 0.58 + 0.20 * min(best_cv, 1.0) + (0.07 if yoy else 0.0)),
+    )
+
+
 _ANALYSES = [
     _correlation_scatter,
     _trend_line,
@@ -934,6 +978,7 @@ _ANALYSES = [
     _marginal_scatter_stats,
     _lollipop_stats,
     _gantt_duration,
+    _calendar_heatmap_stat,
 ]
 
 
