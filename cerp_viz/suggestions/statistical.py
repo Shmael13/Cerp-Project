@@ -763,7 +763,55 @@ def _density_large(df: pd.DataFrame) -> SuggestionResult | None:
     )
 
 
-# ── N+10. Bivariate distribution → Marginal Scatter ─────────────────────────
+# ── N+10. Category ranking with spread → Lollipop Chart ─────────────────────
+
+def _lollipop_stats(df: pd.DataFrame) -> SuggestionResult | None:
+    cats = categorical_cols(df)
+    nums = numeric_cols(df)
+    if not cats or not nums:
+        return None
+
+    best_cat, best_num, best_cv = None, None, 0.0
+    for cat in cats:
+        n = df[cat].nunique()
+        if n < 4 or n > 50:
+            continue
+        for num in nums:
+            try:
+                grouped = df.groupby(cat)[num].sum().abs()
+                total   = grouped.sum()
+                if total == 0:
+                    continue
+                cv = float(grouped.std() / (grouped.mean() + 1e-9))
+                if cv > best_cv:
+                    best_cv, best_cat, best_num = cv, cat, num
+            except Exception:
+                pass
+
+    if best_cat is None or best_cv < 0.3:
+        return None
+
+    n = df[best_cat].nunique()
+    orient = "h" if n > 10 else "v"
+    top_n  = min(n, 15) if n > 15 else 0
+    score  = min(0.82, 0.55 + 0.35 * min(best_cv, 0.8))
+    return SuggestionResult(
+        chart_name="Lollipop Chart",
+        columns=complete_columns("Lollipop Chart", x=best_cat, y=best_num, color=None),
+        params={**default_params("Lollipop Chart"),
+                "aggregation": "sum", "sort_by": "Value (desc)",
+                "orientation": orient, "top_n": top_n},
+        title=f"Ranking: {best_num} by {best_cat}  (spread CV={best_cv:.2f})",
+        rationale=(
+            f"High spread (CV={best_cv:.2f}) across {n} {best_cat} groups. "
+            f"Lollipop ranks them clearly — dots emphasize magnitude differences "
+            f"without the visual weight of bars."
+        ),
+        score=score,
+    )
+
+
+# ── N+11. Bivariate distribution → Marginal Scatter ─────────────────────────
 
 def _marginal_scatter_stats(df: pd.DataFrame) -> SuggestionResult | None:
     nums = numeric_cols(df)
@@ -833,6 +881,7 @@ _ANALYSES = [
     _chord_flow,
     _density_large,
     _marginal_scatter_stats,
+    _lollipop_stats,
 ]
 
 

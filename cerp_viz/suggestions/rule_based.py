@@ -598,6 +598,33 @@ def _marginal_scatter_rb(df: pd.DataFrame) -> SuggestionResult | None:
     )
 
 
+def _lollipop_rb(df: pd.DataFrame) -> SuggestionResult | None:
+    num = best_numeric(df)
+    cat = best_categorical(df, target_n=12)
+    if not num or not cat:
+        return None
+    n = df[cat].nunique()
+    if n < 3:
+        return None
+    agg = "sum" if NUMERIC_HINTS.search(num) else "mean"
+    return SuggestionResult(
+        chart_name="Lollipop Chart",
+        columns=complete_columns("Lollipop Chart", x=cat, y=num, color=None),
+        params={**default_params("Lollipop Chart"),
+                "aggregation": agg,
+                "sort_by": "Value (desc)",
+                "orientation": "h" if n > 10 else "v",
+                "top_n": min(n, 15) if n > 15 else 0},
+        title=f"{agg.capitalize()} of {num} by {cat}",
+        rationale=(
+            f"Lollipop ranks {n} {cat} categories by {agg} of {num} — "
+            f"cleaner than a bar chart, easier to compare magnitudes at a glance."
+        ),
+        score=0.58 + 0.22 * cardinality_score(n, lo=5, hi=20),
+        transforms=suggest_outlier_filter(df, num) + suggest_null_filter(df, num),
+    )
+
+
 _BUILDERS = [_bar, _line, _scatter, _heatmap, _waterfall,
              _distribution, _tornado, _funnel, _sankey,
              _area, _pie, _treemap, _kpi, _bullet,
@@ -605,7 +632,8 @@ _BUILDERS = [_bar, _line, _scatter, _heatmap, _waterfall,
              _calendar_heatmap, _forecast,
              _network_graph, _chord_diagram,
              _correlation_matrix_rb, _scatter_matrix_rb,
-             _density_heatmap_rb, _marginal_scatter_rb]
+             _density_heatmap_rb, _marginal_scatter_rb,
+             _lollipop_rb]
 
 
 # ── Suggester class ───────────────────────────────────────────────────────────

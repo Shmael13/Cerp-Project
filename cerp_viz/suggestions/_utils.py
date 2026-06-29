@@ -445,6 +445,13 @@ _QUERY_CHART_ALIASES: dict[str, str] = {
     "margin plot":            "Marginal Scatter",
     "joint plot":             "Marginal Scatter",
     "jointplot":              "Marginal Scatter",
+    "lollipop":               "Lollipop Chart",
+    "lollipop chart":         "Lollipop Chart",
+    "dot chart":              "Lollipop Chart",
+    "dumbbell":               "Lollipop Chart",
+    "stem plot":              "Lollipop Chart",
+    "cleveland dot":          "Lollipop Chart",
+    "dot and stem":           "Lollipop Chart",
 }
 
 

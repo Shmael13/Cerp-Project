@@ -350,6 +350,8 @@ MULTI-NUMERIC correlation:
 
 RANKING / COMPARISON:
   • Bar Chart           — absolute values per category; standard choice.
+  • Lollipop Chart      — same as Bar Chart but cleaner; prefer when n > 10 categories or
+                          when visual clutter is a concern. Use horizontal orientation for long labels.
   • Waterfall           — use when values have MIXED signs (positive + negative contributions).
   • Tornado Chart       — sensitivity analysis; use when different factors push in opposite directions.
   • Bump Chart          — rank changes over time (requires date + category + value).

@@ -97,6 +97,13 @@ FLOW family:
   • Chord Diagram      — bidirectional flows where the SAME entities appear on both sides.
   • Network Graph      — many-to-many relationships without a clear flow direction.
 
+RANKING / COMPARISON (categorical + numeric):
+  • Bar Chart           — standard; best for ≤ 10 categories or when bars encode area matters.
+  • Lollipop Chart      — cleaner than Bar for > 10 categories or long labels; same data needs.
+                          Use horizontal orientation when category names are long.
+  • Waterfall           — use when values have MIXED signs (contributions add/subtract).
+  • Tornado Chart       — sensitivity analysis; factors drive value in opposite directions.
+
 TEMPORAL (date column required):
   • Line Chart         — standard time-series.
   • Calendar Heatmap   — daily granularity; reveals weekday/weekend cycles.
@@ -110,6 +117,7 @@ COMMON MISTAKES TO AVOID:
 - Never suggest Strip Plot for > 1 000 rows.
 - Never suggest Chord Diagram when source and target share NO common values (use Sankey).
 - Never suggest Forecast without a datetime column.
+- Prefer Lollipop over Bar Chart when there are more than 10 categories.
 - Prefer Marginal Scatter over Scatter Plot when skewness or distribution shape matters.\
 """
 
