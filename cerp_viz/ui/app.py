@@ -15,6 +15,7 @@ from cerp_viz.ui import assumption_panel, scenario_panel, sidebar
 from cerp_viz.ui.assumption_panel import apply_title_subtitle
 from cerp_viz.ui.transform_panel import render_transform_panel
 from cerp_viz.ui.whatif_panel import render_whatif_panel
+from cerp_viz.ui.compare_panel import render_compare_panel
 from cerp_viz.ui.multifile_panel import render_multifile_panel
 from cerp_viz.ui.data_tab import render_data_tab
 from cerp_viz.ui.welcome_panel import render_welcome
@@ -128,6 +129,7 @@ def main() -> None:
             apply_title_subtitle(result.figure, params)
             st.session_state["build_result"] = result
             st.session_state["figure_error"] = None
+            st.session_state["_last_params"]  = dict(params)
         except Exception as exc:
             st.session_state["build_result"] = None
             st.session_state["figure_error"] = str(exc)
@@ -141,9 +143,8 @@ def main() -> None:
     _render_config_io(st, viz_name, col_mapping, params, store)
 
     # ── Retrieve last results ─────────────────────────────────────────────────
-    build_result   = st.session_state.get("build_result")
-    compare_result = st.session_state.get("compare_result")
-    figure_error   = st.session_state.get("figure_error")
+    build_result = st.session_state.get("build_result")
+    figure_error = st.session_state.get("figure_error")
 
     # ── Tabs ─────────────────────────────────────────────────────────────────
     tab_qs, tab_chart, tab_compare, tab_whatif, tab_dash, tab_data = st.tabs(
@@ -182,39 +183,7 @@ def main() -> None:
 
     # ── Tab 3 (slot 2): Scenario comparison ──────────────────────────────────
     with tab_compare:
-        st.subheader("Scenario Comparison")
-
-        if not viz.supports_comparison:
-            st.info(
-                f"**{viz.name}** does not support scenario comparison. "
-                "Supported: Bar Chart, Line Chart, Area Chart, Scatter Plot, "
-                "Waterfall, Distribution, Funnel Chart, Tornado Chart."
-            )
-        elif store.count() < 2:
-            st.info(
-                f"Save at least **2 scenarios** in the sidebar to compare them. "
-                f"You have **{store.count()}** saved so far.\n\n"
-                "_Tip: adjust Data assumptions → Save, then adjust again → Save with a different name._"
-            )
-        else:
-            _render_scenario_diff(st, store, viz.assumptions())
-
-            if st.button("▶  Run Comparison", type="primary"):
-                try:
-                    scenarios = {n: s.params for n, s in store.all().items()}
-                    result = viz.compare(df, col_mapping, scenarios)
-                    apply_theme(result.figure, theme)
-                    st.session_state["compare_result"] = result
-                except NotImplementedError as e:
-                    st.session_state["compare_result"] = None
-                    st.error(str(e))
-                except Exception as exc:
-                    st.session_state["compare_result"] = None
-                    st.error(f"Comparison failed: {exc}")
-
-            if compare_result is not None:
-                _render_warnings(st, compare_result.warnings)
-                StreamlitRenderer().render(compare_result.figure)
+        render_compare_panel(df, viz, col_mapping, store, theme)
 
     # ── Tab 4: What-If Simulator ──────────────────────────────────────────────
     with tab_whatif:
@@ -429,33 +398,6 @@ def _render_stats_bar(st, df, col_mapping: dict) -> None:
         stats.columns = ["Mean", "Std Dev", "Min", "Median", "Max"]
         st.dataframe(stats.round(3), use_container_width=True)
 
-
-def _render_scenario_diff(st, store: "ScenarioStore", assumption_specs) -> None:
-    import pandas as pd
-
-    scenarios = store.all()
-    if len(scenarios) < 2:
-        return
-
-    label_map = {spec.key: spec.label for spec in assumption_specs}
-    names = list(scenarios.keys())
-    rows  = []
-    all_keys: set[str] = set()
-    for s in scenarios.values():
-        all_keys.update(s.params.keys())
-
-    for key in sorted(all_keys):
-        values = {n: scenarios[n].params.get(key, "—") for n in names}
-        if len(set(str(v) for v in values.values())) > 1:
-            row = {"Parameter": label_map.get(key, key)}
-            row.update(values)
-            rows.append(row)
-
-    if rows:
-        with st.expander("🔍 What differs between scenarios", expanded=True):
-            st.dataframe(pd.DataFrame(rows).set_index("Parameter"), use_container_width=True)
-    else:
-        st.info("Scenarios are identical. Modify Data assumptions before saving a new one.")
 
 
 def _render_story_panel(st, df, viz, col_mapping, params, warnings) -> None:
