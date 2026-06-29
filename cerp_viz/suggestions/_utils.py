@@ -14,11 +14,14 @@ from cerp_viz.core.registry import registry
 
 # ── Column-name pattern hints ─────────────────────────────────────────────────
 
-DATE_HINTS     = re.compile(r"date|time|year|month|quarter|week|period|day", re.I)
-NUMERIC_HINTS  = re.compile(r"revenue|sales|amount|cost|price|profit|value|total|count|qty|quantity|volume|margin|spend|budget|forecast", re.I)
-STAGE_HINTS    = re.compile(r"stage|step|phase|funnel|level|tier|status", re.I)
-FLOW_SRC_HINTS = re.compile(r"source|from|origin|sender|supplier", re.I)
-FLOW_TGT_HINTS = re.compile(r"target|to|dest|destination|receiver|customer", re.I)
+DATE_HINTS        = re.compile(r"date|time|year|month|quarter|week|period|day", re.I)
+NUMERIC_HINTS     = re.compile(r"revenue|sales|amount|cost|price|profit|value|total|count|qty|quantity|volume|margin|spend|budget|forecast", re.I)
+STAGE_HINTS       = re.compile(r"stage|step|phase|funnel|level|tier|status", re.I)
+FLOW_SRC_HINTS    = re.compile(r"source|from|origin|sender|supplier", re.I)
+FLOW_TGT_HINTS    = re.compile(r"target|to|dest|destination|receiver|customer", re.I)
+GANTT_START_HINTS = re.compile(r"start|begin|from|open|creat", re.I)
+GANTT_END_HINTS   = re.compile(r"end|finish|clos|due|deadlin|complet", re.I)
+GANTT_TASK_HINTS  = re.compile(r"task|activit|item|project|milestone|work|feature|issue|ticket|deliverable", re.I)
 
 
 # ── Column classifiers ────────────────────────────────────────────────────────
@@ -452,6 +455,18 @@ _QUERY_CHART_ALIASES: dict[str, str] = {
     "stem plot":              "Lollipop Chart",
     "cleveland dot":          "Lollipop Chart",
     "dot and stem":           "Lollipop Chart",
+    "gantt":                  "Gantt Chart",
+    "gantt chart":            "Gantt Chart",
+    "timeline":               "Gantt Chart",
+    "schedule":               "Gantt Chart",
+    "project plan":           "Gantt Chart",
+    "task timeline":          "Gantt Chart",
+    "project timeline":       "Gantt Chart",
+    "project schedule":       "Gantt Chart",
+    "roadmap":                "Gantt Chart",
+    "milestones":             "Gantt Chart",
+    "task chart":             "Gantt Chart",
+    "activity chart":         "Gantt Chart",
 }
 
 

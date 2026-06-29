@@ -53,10 +53,22 @@ def render_column_mapping(
     """
     st.sidebar.markdown("**── Column Mapping ──**")
 
+    import re as _re
+    _DATE_HINTS = _re.compile(r"date|time|day|month|year|start|end|due|deadline|creat|open|clos|finish", _re.I)
+
     all_cols      = list(df.columns)
     numeric_cols  = list(df.select_dtypes(include="number").columns)
     cat_cols      = list(df.select_dtypes(exclude="number").columns)
     dt_cols       = list(df.select_dtypes(include=["datetime", "datetimetz"]).columns)
+    for _col in df.select_dtypes(include="object").columns:
+        if _col not in dt_cols and _DATE_HINTS.search(_col):
+            _sample = df[_col].dropna().head(5)
+            if len(_sample) > 0:
+                try:
+                    pd.to_datetime(_sample, errors="raise")
+                    dt_cols.append(_col)
+                except Exception:
+                    pass
 
     dtype_map: dict[str, list[str]] = {
         "numeric":     numeric_cols  or all_cols,

@@ -20,6 +20,7 @@ from cerp_viz.suggestions._utils import (
     ols_r2, pearson_r, default_params,
     complete_columns, validate_and_complete,
     STAGE_HINTS, FLOW_SRC_HINTS, FLOW_TGT_HINTS,
+    GANTT_START_HINTS, GANTT_END_HINTS, GANTT_TASK_HINTS,
     suggest_date_parts, suggest_outlier_filter, filter_by_query,
 )
 
@@ -860,6 +861,49 @@ def _marginal_scatter_stats(df: pd.DataFrame) -> SuggestionResult | None:
     )
 
 
+def _gantt_duration(df: pd.DataFrame) -> SuggestionResult | None:
+    dts  = datetime_cols(df)
+    cats = categorical_cols(df)
+    if len(dts) < 2 or len(cats) < 1:
+        return None
+
+    task_col  = next((c for c in cats if GANTT_TASK_HINTS.search(c)), cats[0])
+    start_col = next((c for c in dts  if GANTT_START_HINTS.search(c)), dts[0])
+    end_col   = next((c for c in dts  if GANTT_END_HINTS.search(c) and c != start_col),
+                     next((c for c in dts if c != start_col), None))
+    if not end_col:
+        return None
+
+    try:
+        s = pd.to_datetime(df[start_col], errors="coerce")
+        e = pd.to_datetime(df[end_col],   errors="coerce")
+        valid = s.notna() & e.notna()
+        if valid.sum() == 0:
+            return None
+        positive_frac = (e[valid] > s[valid]).mean()
+        if positive_frac < 0.7:
+            return None
+        avg_days = (e[valid] - s[valid]).dt.days.mean()
+    except Exception:
+        return None
+
+    color_col = next((c for c in cats if c != task_col), None)
+    return SuggestionResult(
+        chart_name="Gantt Chart",
+        columns=complete_columns("Gantt Chart",
+                                 task=task_col, start=start_col,
+                                 end=end_col, color=color_col),
+        params={**default_params("Gantt Chart"), "sort_by": "Start", "show_today": True},
+        title=f"Timeline of {task_col} (avg {avg_days:.0f} days)",
+        rationale=(
+            f"{positive_frac*100:.0f}% of rows have End > Start in '{start_col}' → '{end_col}' "
+            f"(avg {avg_days:.1f} day duration) — a Gantt chart shows the schedule."
+        ),
+        score=min(0.85, 0.60 + 0.20 * positive_frac),
+        transforms=[],
+    )
+
+
 _ANALYSES = [
     _correlation_scatter,
     _trend_line,
@@ -882,6 +926,7 @@ _ANALYSES = [
     _density_large,
     _marginal_scatter_stats,
     _lollipop_stats,
+    _gantt_duration,
 ]
 
 

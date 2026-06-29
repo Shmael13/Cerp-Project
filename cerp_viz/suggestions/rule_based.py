@@ -13,6 +13,7 @@ import pandas as pd
 from cerp_viz.core.suggestions import BaseSuggester, SuggestionResult
 from cerp_viz.suggestions._utils import (
     NUMERIC_HINTS, STAGE_HINTS, FLOW_SRC_HINTS, FLOW_TGT_HINTS,
+    GANTT_START_HINTS, GANTT_END_HINTS, GANTT_TASK_HINTS,
     numeric_cols, categorical_cols, datetime_cols,
     best_numeric, best_categorical, cardinality_score,
     has_mixed_sign, default_params, complete_columns, validate_and_complete,
@@ -625,6 +626,39 @@ def _lollipop_rb(df: pd.DataFrame) -> SuggestionResult | None:
     )
 
 
+def _gantt_rb(df: pd.DataFrame) -> SuggestionResult | None:
+    cats = categorical_cols(df)
+    dts  = datetime_cols(df)
+
+    task_col  = next((c for c in cats if GANTT_TASK_HINTS.search(c)), None)
+    start_col = next((c for c in dts  if GANTT_START_HINTS.search(c)), None)
+    end_col   = next((c for c in dts  if GANTT_END_HINTS.search(c) and c != start_col), None)
+
+    if not task_col or not start_col or not end_col:
+        if len(dts) >= 2 and len(cats) >= 1:
+            task_col  = cats[0]
+            start_col = dts[0]
+            end_col   = dts[1]
+        else:
+            return None
+
+    color_col = next((c for c in cats if c != task_col), None)
+    return SuggestionResult(
+        chart_name="Gantt Chart",
+        columns=complete_columns("Gantt Chart",
+                                 task=task_col, start=start_col,
+                                 end=end_col, color=color_col),
+        params={**default_params("Gantt Chart"), "sort_by": "Start", "show_today": True},
+        title=f"Timeline of {task_col}",
+        rationale=(
+            f"Date columns '{start_col}' and '{end_col}' define task durations — "
+            f"a Gantt chart visualises scheduling and progress at a glance."
+        ),
+        score=0.72,
+        transforms=[],
+    )
+
+
 _BUILDERS = [_bar, _line, _scatter, _heatmap, _waterfall,
              _distribution, _tornado, _funnel, _sankey,
              _area, _pie, _treemap, _kpi, _bullet,
@@ -633,7 +667,7 @@ _BUILDERS = [_bar, _line, _scatter, _heatmap, _waterfall,
              _network_graph, _chord_diagram,
              _correlation_matrix_rb, _scatter_matrix_rb,
              _density_heatmap_rb, _marginal_scatter_rb,
-             _lollipop_rb]
+             _lollipop_rb, _gantt_rb]
 
 
 # ── Suggester class ───────────────────────────────────────────────────────────
