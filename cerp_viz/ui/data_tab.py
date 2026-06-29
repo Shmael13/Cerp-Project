@@ -78,26 +78,34 @@ def _render_excel_download(df: pd.DataFrame) -> None:
 
 
 def render_data_tab(df: pd.DataFrame, sheet_name: str, build_result) -> None:
-    st.subheader(f"Data Preview — {sheet_name}")
+    from cerp_viz.ui.profile_panel import render_profile_panel
 
-    c1, c2, c3 = st.columns(3)
-    c1.metric("Rows",          f"{len(df):,}")
-    c2.metric("Columns",       len(df.columns))
-    c3.metric("Missing cells", f"{df.isnull().sum().sum():,}")
+    tab_preview, tab_profile = st.tabs(["🗂 Preview", "🔍 Profile Report"])
 
-    st.divider()
-    _render_metric_cards(df)
+    with tab_preview:
+        st.subheader(f"Data Preview — {sheet_name}")
 
-    st.divider()
-    btn_col1, btn_col2, _ = st.columns([1, 1, 4])
-    with btn_col1:
-        _render_excel_download(df)
-    with btn_col2:
-        if build_result is not None:
-            if st.button("⬇️ Chart as HTML", key="data_html_export"):
-                from cerp_viz.renderers.html_renderer import HTMLRenderer
-                HTMLRenderer("cerp_output.html").render(build_result.figure)
-                st.success("Saved to cerp_output.html")
+        c1, c2, c3 = st.columns(3)
+        c1.metric("Rows",          f"{len(df):,}")
+        c2.metric("Columns",       len(df.columns))
+        c3.metric("Missing cells", f"{df.isnull().sum().sum():,}")
 
-    st.divider()
-    st.dataframe(df, use_container_width=True)
+        st.divider()
+        _render_metric_cards(df)
+
+        st.divider()
+        btn_col1, btn_col2, _ = st.columns([1, 1, 4])
+        with btn_col1:
+            _render_excel_download(df)
+        with btn_col2:
+            if build_result is not None:
+                if st.button("⬇️ Chart as HTML", key="data_html_export"):
+                    from cerp_viz.renderers.html_renderer import HTMLRenderer
+                    HTMLRenderer("cerp_output.html").render(build_result.figure)
+                    st.success("Saved to cerp_output.html")
+
+        st.divider()
+        st.dataframe(df, use_container_width=True)
+
+    with tab_profile:
+        render_profile_panel(df)
